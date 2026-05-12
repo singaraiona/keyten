@@ -20,6 +20,7 @@
 //! whitespace (no commas). If types differ, we promote (int → float) up to F64.
 
 use crate::ast::{AdvId, AtomLit, Expr, Span};
+use std::sync::Arc;
 use crate::kind::Kind;
 use crate::op::OpId;
 use crate::parse::lex::{Token, TokenKind};
@@ -46,6 +47,8 @@ fn is_value_producing(kind: &TokenKind) -> bool {
             | TokenKind::InfI64
             | TokenKind::InfF64
             | TokenKind::RParen
+            | TokenKind::RBrace
+            | TokenKind::RBracket
     )
 }
 
@@ -367,7 +370,71 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Name reference.
+        // Lambda `{body}` or `{[x;y] body}`.
+        if let Some(t) = self.peek() {
+            if matches!(t.kind, TokenKind::LBrace) {
+                let lbrace = t.span;
+                self.bump();
+                // Optional explicit param list: `[x;y;z]`.
+                let params: Vec<crate::sym::Sym> =
+                    if matches!(self.peek().map(|x| &x.kind), Some(TokenKind::LBracket)) {
+                        self.bump();
+                        let mut ps = Vec::new();
+                        loop {
+                            // Expect Ident as a param name.
+                            let p = self.peek().cloned();
+                            match p {
+                                Some(Token { kind: TokenKind::Ident(name), span }) => {
+                                    self.bump();
+                                    let sym = intern(&name).map_err(|_| ParseErr {
+                                        msg: format!("invalid param `{name}`"),
+                                        span,
+                                    })?;
+                                    ps.push(sym);
+                                }
+                                _ => {
+                                    let span = self.span_end();
+                                    return self.err(
+                                        "expected param name in lambda `[...]`",
+                                        span,
+                                    );
+                                }
+                            }
+                            if self.eat(&TokenKind::RBracket) {
+                                break;
+                            }
+                            if !self.eat(&TokenKind::Semicolon) {
+                                let span = self.span_end();
+                                return self.err(
+                                    "expected `;` or `]` in lambda param list",
+                                    span,
+                                );
+                            }
+                        }
+                        ps
+                    } else {
+                        // Implicit-x: assume the body references `x`.
+                        // Future v1.x: scan body for free x/y/z to compute
+                        // arity (K convention). For v1.1 minimum, default
+                        // to single-arg `x`.
+                        vec![intern("x").unwrap()]
+                    };
+                let body = self.parse_expr()?;
+                if !self.eat(&TokenKind::RBrace) {
+                    let span = self.span_end();
+                    return self.err("expected `}` to close lambda body", span);
+                }
+                let span = Span::merge(lbrace, self.span_end());
+                let lambda = Expr::Lambda {
+                    params,
+                    body: Arc::new(body),
+                    span,
+                };
+                return self.maybe_apply(lambda);
+            }
+        }
+
+        // Name reference (possibly with `[args]` apply postfix).
         if let Some(t) = self.peek() {
             if matches!(t.kind, TokenKind::Ident(_)) {
                 let (name, span) = match self.bump().unwrap() {
@@ -378,12 +445,45 @@ impl<'a> Parser<'a> {
                     msg: format!("invalid symbol name `{name}`"),
                     span,
                 })?;
-                return Ok(Expr::Name { sym, span });
+                return self.maybe_apply(Expr::Name { sym, span });
             }
         }
 
         // Numeric / sym / string atoms — possibly a vector.
         self.parse_atom_or_vec()
+    }
+
+    /// If `expr` is followed by `[args]`, wrap it as `Apply`. Chains:
+    /// `f[1][2]` becomes `Apply(Apply(f, [1]), [2])`. This is the entry
+    /// point for both lambda application and (future) curried application.
+    fn maybe_apply(&mut self, mut expr: Expr) -> Result<Expr, ParseErr> {
+        loop {
+            match self.peek().map(|t| &t.kind) {
+                Some(TokenKind::LBracket) => {
+                    let lstart = self.peek().unwrap().span;
+                    self.bump(); // [
+                    let mut args = Vec::new();
+                    if !matches!(self.peek().map(|t| &t.kind), Some(TokenKind::RBracket)) {
+                        // First arg.
+                        args.push(self.parse_expr()?);
+                        while self.eat(&TokenKind::Semicolon) {
+                            args.push(self.parse_expr()?);
+                        }
+                    }
+                    if !self.eat(&TokenKind::RBracket) {
+                        let span = self.span_end();
+                        return self.err("expected `]` to close apply args", span);
+                    }
+                    let span = Span::merge(lstart, self.span_end());
+                    expr = Expr::Apply {
+                        func: Box::new(expr),
+                        args,
+                        span,
+                    };
+                }
+                _ => return Ok(expr),
+            }
+        }
     }
 
     fn parse_atom_or_vec(&mut self) -> Result<Expr, ParseErr> {

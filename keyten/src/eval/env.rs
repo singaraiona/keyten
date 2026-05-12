@@ -34,6 +34,12 @@ impl Env {
         self.bindings.insert(name, value);
     }
 
+    /// Remove a binding. Used by lambda apply to restore the env after
+    /// a param was previously unbound.
+    pub fn unbind(&mut self, name: Sym) {
+        self.bindings.remove(&name);
+    }
+
     /// Iterate over current bindings (for the variable inspector).
     pub fn iter(&self) -> impl Iterator<Item = (&Sym, &RefObj)> {
         self.bindings.iter()

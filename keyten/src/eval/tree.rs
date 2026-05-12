@@ -8,7 +8,7 @@ use core::future::Future;
 use core::pin::Pin;
 
 use crate::adverb;
-use crate::alloc::{alloc_atom, alloc_vec_f64, alloc_vec_i64};
+use crate::alloc::{alloc_atom, alloc_lambda, alloc_vec_f64, alloc_vec_i64};
 use crate::ast::{AdvId, AtomLit, Expr, Span};
 use crate::ctx::{Ctx, KernelErr};
 use crate::eval::env::Env;
@@ -215,6 +215,61 @@ fn eval_boxed<'a, 'r>(
                 } else {
                     eval_boxed(else_branch, env, ctx).await
                 }
+            }
+            Expr::Lambda { params, body, .. } => {
+                let inner = Box::new(crate::ast::LambdaInner {
+                    params: params.clone(),
+                    body: body.clone(),
+                });
+                Ok(unsafe { alloc_lambda(inner) })
+            }
+            Expr::Apply { func, args, span } => {
+                let f = eval_boxed(func, env, ctx).await?;
+                if f.kind() != Kind::Lambda {
+                    return Err(EvalErr::Type {
+                        msg: format!("not callable: kind {:?}", f.kind()),
+                        span: *span,
+                    });
+                }
+                // Eval the args (left-to-right).
+                let mut vals: Vec<RefObj> = Vec::with_capacity(args.len());
+                for a in args {
+                    vals.push(eval_boxed(a, env, ctx).await?);
+                }
+                // Pull the inner via the atom payload.
+                let inner_ptr: *mut crate::ast::LambdaInner = unsafe { f.atom() };
+                let inner: &crate::ast::LambdaInner = unsafe { &*inner_ptr };
+
+                if vals.len() != inner.params.len() {
+                    return Err(EvalErr::Type {
+                        msg: format!(
+                            "arity mismatch: expected {}, got {}",
+                            inner.params.len(),
+                            vals.len()
+                        ),
+                        span: *span,
+                    });
+                }
+
+                // Save previous bindings for the param names, then bind args.
+                // Restore on exit so the lambda's params don't leak into
+                // the caller env. (Simpler than a full scope-chain for v1.1.)
+                let saved: Vec<(crate::sym::Sym, Option<RefObj>)> = inner
+                    .params
+                    .iter()
+                    .map(|p| (*p, env.lookup(*p)))
+                    .collect();
+                for (p, v) in inner.params.iter().zip(vals.into_iter()) {
+                    env.bind(*p, v);
+                }
+                let result = eval_boxed(&inner.body, env, ctx).await;
+                for (p, prev) in saved {
+                    match prev {
+                        Some(v) => env.bind(p, v),
+                        None => env.unbind(p),
+                    }
+                }
+                result
             }
         }
     })

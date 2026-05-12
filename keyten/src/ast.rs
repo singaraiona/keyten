@@ -6,6 +6,7 @@
 use crate::kind::Kind;
 use crate::op::OpId;
 use crate::sym::Sym;
+use std::sync::Arc;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 pub struct Span {
@@ -121,6 +122,29 @@ pub enum Expr {
         else_branch: Box<Expr>,
         span: Span,
     },
+    /// Lambda expression: `{[x;y]body}` (explicit param list) or `{body}`
+    /// (implicit single arg named `x`). The body is `Arc`d so the lambda
+    /// value can be cheaply cloned without copying the AST tree.
+    Lambda {
+        params: Vec<Sym>,
+        body: Arc<Expr>,
+        span: Span,
+    },
+    /// Function application: `func[a;b;c]`. `args` may be empty for `f[]`.
+    /// Currently only the bracket form; juxtaposition `f x` is v1.2.
+    Apply {
+        func: Box<Expr>,
+        args: Vec<Expr>,
+        span: Span,
+    },
+}
+
+/// Heap-allocated lambda body. Pointed at by the atom payload of a
+/// `Kind::Lambda` cell. Cloning the lambda `RefObj` shares this inner
+/// (we ref-share via the cell's rc, not the `Arc<Expr>` inside).
+pub struct LambdaInner {
+    pub params: Vec<Sym>,
+    pub body: Arc<Expr>,
 }
 
 impl Expr {
@@ -136,6 +160,8 @@ impl Expr {
             Expr::Adverb { span, .. } => *span,
             Expr::Seq { span, .. } => *span,
             Expr::Cond { span, .. } => *span,
+            Expr::Lambda { span, .. } => *span,
+            Expr::Apply { span, .. } => *span,
         }
     }
 }

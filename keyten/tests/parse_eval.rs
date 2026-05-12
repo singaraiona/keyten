@@ -712,6 +712,56 @@ fn cond_branches_can_be_complex() {
     assert_eq!(unsafe { r.atom::<i64>() }, 4950);
 }
 
+// =======================================================================
+// Phase 1: Lambda v1.1
+// =======================================================================
+
+#[test]
+fn lambda_implicit_x_apply() {
+    let r = run("{x*x}[5]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 25);
+}
+
+#[test]
+fn lambda_explicit_param_list() {
+    let r = run("{[a;b] a+b}[3;4]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 7);
+}
+
+#[test]
+fn lambda_as_value_can_be_bound() {
+    let r = run("f: {x+10}; f[5]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 15);
+}
+
+#[test]
+fn lambda_nested_apply() {
+    let r = run("f: {x*2}; f[f[f[3]]]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 24);
+}
+
+#[test]
+fn lambda_arity_mismatch_errors() {
+    use keyten::{parse, Ctx, Env};
+    let expr = parse("{[a;b] a+b}[3]").unwrap();
+    let mut env = Env::new();
+    let ctx = Ctx::quiet();
+    let r = keyten::eval(&expr, &mut env, &ctx);
+    assert!(r.is_err());
+}
+
+#[test]
+fn lambda_returns_vector() {
+    let r = run("{!x}[5]");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[0, 1, 2, 3, 4]);
+}
+
+#[test]
+fn lambda_with_conditional() {
+    let r = run("abs: {$[x < 0; -x; x]}; abs[-7]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 7);
+}
+
 #[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).

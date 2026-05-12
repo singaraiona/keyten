@@ -51,6 +51,8 @@ pub enum TokenKind {
     RParen,
     LBracket,      // `[` — bracket-args (conditional, future indexing, lambda params)
     RBracket,      // `]`
+    LBrace,        // `{` — lambda body open
+    RBrace,        // `}` — lambda body close
 }
 
 #[derive(Debug, Clone)]
@@ -255,6 +257,8 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             b')' => TokenKind::RParen,
             b'[' => TokenKind::LBracket,
             b']' => TokenKind::RBracket,
+            b'{' => TokenKind::LBrace,
+            b'}' => TokenKind::RBrace,
             other => {
                 return Err(ParseErr {
                     msg: format!("unexpected character `{}`", other as char),

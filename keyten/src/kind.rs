@@ -67,6 +67,11 @@ pub enum Kind {
 
     Table  = 98,   // payload[0] is a Dict obj
     Dict   = 99,   // generic 2-list: [keys, values]
+
+    /// User-defined lambda. Atom-shaped (single value, no vector form).
+    /// Payload at offset 8 is a `*mut LambdaInner` — `Box`-allocated outside
+    /// the cell, dropped by the release path special-casing this kind.
+    Lambda = 30,
 }
 
 /// K9 temporal epoch — midnight UTC of 2001-01-01.
@@ -121,6 +126,7 @@ impl Kind {
             | Kind::DtUs
             | Kind::DtNs => 8,
             Kind::List | Kind::Dict | Kind::Table => 8, // size_of::<RefObj>()
+            Kind::Lambda => 8, // *mut LambdaInner
         }
     }
 
@@ -129,7 +135,13 @@ impl Kind {
     pub const fn has_null(self) -> bool {
         !matches!(
             self,
-            Kind::Bool | Kind::U8 | Kind::Char | Kind::List | Kind::Dict | Kind::Table
+            Kind::Bool
+                | Kind::U8
+                | Kind::Char
+                | Kind::List
+                | Kind::Dict
+                | Kind::Table
+                | Kind::Lambda
         )
     }
 
@@ -162,6 +174,7 @@ impl Kind {
             Kind::List => 'L', // K9 reports `L for mixed list atom (no atom form)
             Kind::Dict => '!', // ad-hoc; K9 has no atom letter
             Kind::Table => '+', // ad-hoc; K9 has no atom letter
+            Kind::Lambda => 'F', // K9 reports `F for lambda
         }
     }
 
@@ -196,6 +209,7 @@ impl Kind {
             Kind::List => 'L',
             Kind::Dict => '!',
             Kind::Table => '+',
+            Kind::Lambda => 'F',
         }
     }
 
@@ -261,6 +275,7 @@ const _: () = {
     check!(DtMs);
     check!(DtUs);
     check!(DtNs);
+    check!(Lambda);
 };
 
 #[cfg(test)]

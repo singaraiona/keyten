@@ -110,6 +110,16 @@ pub unsafe fn release(p: NonNull<Obj>) {
 
     // Atom: return cell to the freelist.
     if raw < 0 {
+        // Lambda atoms own a heap-allocated `LambdaInner` via the
+        // pointer at offset 8. Drop the box before the cell is reused.
+        if raw == Kind::Lambda.atom() {
+            let inner_ptr = ptr::read_unaligned(
+                (p.as_ptr() as *const u8).add(8) as *const *mut crate::ast::LambdaInner,
+            );
+            if !inner_ptr.is_null() {
+                let _ = Box::from_raw(inner_ptr);
+            }
+        }
         RUNTIME.push_atom_cell(p.as_ptr());
         return;
     }
@@ -263,4 +273,19 @@ pub unsafe fn alloc_vec_f64(ctx: &Ctx, n: i64) -> RefObj {
 #[inline]
 pub unsafe fn alloc_vec_i32(ctx: &Ctx, n: i64) -> RefObj {
     alloc_vec(ctx, Kind::I32.vec(), n, Kind::I32.elem_size())
+}
+
+/// Allocate a lambda atom cell. The `LambdaInner` is `Box`ed and a
+/// pointer to it is stored in the atom payload at offset 8. The cell's
+/// release path knows to drop the box before reclaiming the cell.
+///
+/// # Safety
+/// Caller transfers ownership of the `Box<LambdaInner>` to the new cell;
+/// the box must not be otherwise referenced.
+pub unsafe fn alloc_lambda(inner: Box<crate::ast::LambdaInner>) -> RefObj {
+    let p = RUNTIME.pop_atom_cell();
+    write_header(p, /*meta=*/ 0, /*attr=*/ 0, Kind::Lambda.atom(), /*rc=*/ 1);
+    let raw = Box::into_raw(inner);
+    ptr::write_unaligned((p as *mut u8).add(8) as *mut *mut crate::ast::LambdaInner, raw);
+    RefObj(NonNull::new_unchecked(p))
 }
