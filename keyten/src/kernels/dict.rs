@@ -61,6 +61,92 @@ pub fn dict_values(d: &RefObj) -> Result<RefObj, KernelErr> {
     }
 }
 
+/// `vec @ idx` — read element at integer index. Atom idx → element atom;
+/// out-of-range returns the kind's null sentinel (for kinds that have one)
+/// or KernelErr::Shape (for kinds without nulls).
+pub fn vec_index(v: &RefObj, idx: i64) -> Result<RefObj, KernelErr> {
+    if !v.is_vec() {
+        return Err(KernelErr::Type);
+    }
+    let n = v.len();
+    if idx < 0 || idx >= n {
+        return null_of(v.kind());
+    }
+    let i = idx as usize;
+    let kind = v.kind();
+    let r = unsafe {
+        match kind {
+            Kind::I64 => crate::alloc::alloc_atom(Kind::I64, v.as_slice::<i64>()[i]),
+            Kind::F64 => crate::alloc::alloc_atom(Kind::F64, v.as_slice::<f64>()[i]),
+            Kind::Bool | Kind::U8 | Kind::Char => {
+                crate::alloc::alloc_atom(kind, v.as_slice::<u8>()[i])
+            }
+            Kind::Sym => crate::alloc::alloc_atom(
+                Kind::Sym,
+                v.as_slice::<crate::sym::Sym>()[i],
+            ),
+            Kind::Date | Kind::TimeS | Kind::TimeMs | Kind::I32 | Kind::F32 => {
+                crate::alloc::alloc_atom(kind, v.as_slice::<i32>()[i])
+            }
+            Kind::I16 => crate::alloc::alloc_atom(Kind::I16, v.as_slice::<i16>()[i]),
+            Kind::TimeUs | Kind::TimeNs | Kind::DtS | Kind::DtMs | Kind::DtUs | Kind::DtNs => {
+                crate::alloc::alloc_atom(kind, v.as_slice::<i64>()[i])
+            }
+            _ => return Err(KernelErr::Type),
+        }
+    };
+    Ok(r)
+}
+
+/// `dict @ key` — look up the value for `key`. Linear scan through the
+/// dict's keys; on match, return the corresponding value as an atom.
+/// On miss, return the value-kind's null sentinel.
+pub fn dict_lookup(d: &RefObj, key: &RefObj) -> Result<RefObj, KernelErr> {
+    let keys = dict_keys(d)?;
+    let values = dict_values(d)?;
+    if !key.is_atom() {
+        return Err(KernelErr::Type);
+    }
+    let kk = key.kind();
+    if kk != keys.kind() {
+        return Err(KernelErr::Type);
+    }
+    let idx = unsafe {
+        match kk {
+            Kind::I64 => {
+                let k = key.atom::<i64>();
+                keys.as_slice::<i64>().iter().position(|&v| v == k)
+            }
+            Kind::Sym => {
+                let k = key.atom::<crate::sym::Sym>();
+                keys.as_slice::<crate::sym::Sym>().iter().position(|&v| v == k)
+            }
+            Kind::F64 => {
+                let k = key.atom::<f64>();
+                // Use bit-pattern comparison for total order (NaN-safe).
+                let kb = k.to_bits();
+                keys.as_slice::<f64>()
+                    .iter()
+                    .position(|&v| v.to_bits() == kb)
+            }
+            _ => return Err(KernelErr::Type),
+        }
+    };
+    match idx {
+        Some(i) => vec_index(&values, i as i64),
+        None => null_of(values.kind()),
+    }
+}
+
+fn null_of(kind: Kind) -> Result<RefObj, KernelErr> {
+    match kind {
+        Kind::I64 => Ok(unsafe { crate::alloc::alloc_atom(Kind::I64, crate::nulls::NULL_I64) }),
+        Kind::F64 => Ok(unsafe { crate::alloc::alloc_atom(Kind::F64, crate::nulls::NULL_F64) }),
+        Kind::Sym => Ok(unsafe { crate::alloc::alloc_atom(Kind::Sym, crate::nulls::NULL_SYM) }),
+        _ => Err(KernelErr::Shape),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -613,14 +613,36 @@ fn dict_construct() {
 
 #[test]
 fn dict_lookup_length() {
-    // `#` on a dict reports the number of key-value pairs (which equals
-    // the length of the values vector, which is what our `.len()` reads
-    // from offset 8). Dict has len = 2 in storage but is logically "3"
-    // for a 3-element dict. For now `#` returns the raw stored len.
-    // TODO: make `#dict` return the entry count once dict has a proper
-    // length convention. For v1 we just check construction works.
     let r = run("@ 1 2 3 ! 10 20 30");
     assert_eq!(r.kind(), Kind::Sym);
+}
+
+#[test]
+fn dict_lookup_value() {
+    // (`a`b`c ! 1 2 3) @ `b should return 2.
+    // For now use i64 keys since sym vector parsing is separate.
+    let r = run("(1 2 3 ! 10 20 30) @ 2");
+    assert_eq!(unsafe { r.atom::<i64>() }, 20);
+}
+
+#[test]
+fn dict_lookup_miss_returns_null() {
+    let r = run("(1 2 3 ! 10 20 30) @ 99");
+    // value-kind is I64, so null is NULL_I64 = i64::MIN.
+    assert_eq!(r.kind(), Kind::I64);
+    assert_eq!(unsafe { r.atom::<i64>() }, i64::MIN);
+}
+
+#[test]
+fn vec_index_at() {
+    let r = run("10 20 30 40 50 @ 2");
+    assert_eq!(unsafe { r.atom::<i64>() }, 30);
+}
+
+#[test]
+fn vec_index_out_of_range_is_null() {
+    let r = run("10 20 30 @ 5");
+    assert_eq!(unsafe { r.atom::<i64>() }, i64::MIN);
 }
 
 #[test]

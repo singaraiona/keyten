@@ -176,16 +176,33 @@ pub async fn dispatch_bang_async(
     Err(KernelErr::Type)
 }
 
-/// `x @ y` — index/apply. Reserved.
-pub fn dispatch_at(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
-    Err(KernelErr::Type)
+/// `x @ y` — index/apply.
+///
+/// - `dict @ key` — dict lookup (returns value; null if key absent).
+/// - `vec @ idx`  — vector indexing (atom idx → element atom).
+/// - Function apply is reserved until Lambda v1.1 lands.
+pub fn dispatch_at(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    block_on(dispatch_at_async(x, y, ctx))
 }
 
 pub async fn dispatch_at_async(
-    _x: RefObj,
-    _y: RefObj,
+    x: RefObj,
+    y: RefObj,
     _ctx: &Ctx<'_>,
 ) -> Result<RefObj, KernelErr> {
+    let xk = x.kind();
+    // Dict lookup: x is a dict, y is a key atom.
+    if xk == Kind::Dict {
+        return kernels::dict::dict_lookup(&x, &y);
+    }
+    // Vector index: x is a non-composite vector, y is an I64 atom.
+    if x.is_vec() && !matches!(xk, Kind::List | Kind::Dict | Kind::Table) {
+        if !y.is_atom() || y.kind() != Kind::I64 {
+            return Err(KernelErr::Type);
+        }
+        let idx = unsafe { y.atom::<i64>() };
+        return kernels::dict::vec_index(&x, idx);
+    }
     Err(KernelErr::Type)
 }
 
