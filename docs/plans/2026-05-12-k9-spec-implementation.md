@@ -357,37 +357,66 @@ with its own design doc if non-trivial. The Lambda v1.1 design
 - `temporal.rs`: Hinnant civil_from_days conversion; time-of-day helpers; dt composition.
 - All round-trip tests pass.
 
-### Phase 2 — Verbs: 15 of ~17 covered
+### Phase 2 — Verbs: 19 of 19 covered (most monadic + dyadic)
 
 | Verb | Monadic | Dyadic | Status |
 |---|---|---|---|
 | `+` | identity | add | ✅ both |
 | `-` | negate | subtract | ✅ both |
 | `*` | identity | multiply | ✅ both |
-| `%` | sqrt (TODO) | divide | dyadic |
-| `!` | til | mod (TODO) | monadic |
+| `%` | **sqrt** | divide | ✅ both |
+| `!` | til; **!dict→keys** overload | dict-construct (mod TODO) | ✅ both |
 | `,` | enlist | concat | ✅ both |
-| `#` | count | take | ✅ both |
-| `@` | type | index/apply (needs λ) | monadic |
+| `#` | count (**#dict→entry count**) | take | ✅ both |
+| `@` | type | index/apply: **dict@key**, **vec@idx** | ✅ both |
 | `=` | freq (TODO) | equality | dyadic |
 | `<` | asc-idx (TODO) | less-than | dyadic |
 | `>` | desc-idx (TODO) | greater-than | dyadic |
 | `~` | not | match | ✅ both |
-| `&` | where (TODO) | min | dyadic |
-| `\|` | reverse (TODO) | max | dyadic |
+| `&` | **where** | min | ✅ both |
+| `\|` | **reverse** | max | ✅ both |
 | `_` | floor | drop | ✅ both |
 | `$` | string-convert | parse (TODO) | monadic |
-| `?` | unique (TODO) | find (TODO) | — |
-| `.` | value (TODO) | dict/apply (TODO) | — |
-| `^` | sort (TODO) | cut (TODO) | — |
+| `?` | unique | find (TODO) | monadic |
+| `.` | **value (dict→values)** | apply (needs λ) | monadic |
+| `^` | sort-asc | cut (TODO) | monadic |
 
-### Phase 3 — Adverbs: 2 of 6 covered
+### Phase 3 — Adverbs: 4 of 6 covered
 - `/` over — parallel reduce ✅
 - `\` scan — parallel two-pass prefix sum (i64), sequential (f64) ✅
-- `'` `':` `/:` `\:` — not started
+- `'` each — uniform-vector dispatch ✅
+- `':` eachprior — i64 +/- ✅
+- `/:` eachright — not started (needs partial app)
+- `\:` eachleft — not started (needs partial app)
+
+### Phase 4 — Composites: Dict landed; Table TBD
+
+- Dict construct: `keys ! values` ✅ (kind Dict, [keys, values] payload)
+- Dict lookup: `dict @ key` ✅
+- Dict accessors: `#dict` (count), `!dict` (keys), `.dict` (values) ✅
+- Display formatter for dict — not started
+- Table (`+dict` flip) — not started
+
+### Phases 1, 5-9: not started
+
+Phase 1 (Lambda): designed in `2026-05-12-lambda-v1-1.md`, unimplemented.
+Phase 5 (control flow `$[c;t;e]`): parser change needed.
+Phase 6 (temporal functions `z.d` `z.t`): needs namespace-dot
+identifier parsing (conflicts with current `.` verb token; design call).
+Phase 7 (kSQL): largest remaining piece; needs Lambda + Table.
+Phase 8 (IO + FF): needs FFI strategy.
+Phase 9 (Knit / named-functions): needs `in`, `like`, `within`, etc.
 
 ### Substrate hardening done in parallel with verbs
+
 - Performance mandate locked in `CLAUDE.md`.
 - TSan re-run after every kernel-touching commit; clean across 12 parallel tests.
 - Rayforce parity on `+/!1e8` (~37 ms median, commit `2a5c80a`).
-- Test count: 66 parse_eval, 25+ lib unit, 12 parallel/TSan, 6 temporal.
+- Test count: 88 parse_eval, 33+ lib unit, 12 parallel/TSan, 6 temporal.
+
+### Session totals (2026-05-12)
+
+Commits this session: ~30 across phases 0, 2, 3, 4 plus substrate work
+(CLAUDE.md, K9 audit, lambda design, performance fixes, sanitizer
+runs). The session pushed coverage of the K9 verb surface from 4 to
+19 verbs and adverb coverage from 1 to 4.
