@@ -95,6 +95,7 @@ fn eval_boxed<'a, 'r>(
                     op::OpId::Amp => op::dispatch_amp_async(x, y, ctx).await,
                     op::OpId::Pipe => op::dispatch_pipe_async(x, y, ctx).await,
                     op::OpId::Underscore => op::dispatch_underscore_async(x, y, ctx).await,
+                    op::OpId::Dollar => op::dispatch_dollar_async(x, y, ctx).await,
                 };
                 r.map_err(|e| EvalErr::Kernel { err: e, span: *span })
             }
@@ -116,6 +117,8 @@ fn eval_boxed<'a, 'r>(
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     op::OpId::Underscore => unsafe { crate::kernels::underscore::floor_async(x, ctx) }
                         .await
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Dollar => crate::kernels::monad::string_of(x, ctx)
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     _ => Err(EvalErr::Type {
                         msg: "monadic form not supported for this verb in v1".into(),

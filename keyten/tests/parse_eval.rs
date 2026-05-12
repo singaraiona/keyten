@@ -440,6 +440,40 @@ fn drop_more_than_len() {
     assert_eq!(r.len(), 0);
 }
 
+// =======================================================================
+// $ verb: string-convert (monadic)
+// =======================================================================
+
+fn run_str(src: &str) -> String {
+    let r = run(src);
+    assert!(r.is_vec(), "expected vector, got atom");
+    assert_eq!(r.kind(), Kind::Char);
+    let bytes = unsafe { r.as_slice::<u8>() };
+    std::str::from_utf8(bytes).unwrap().to_string()
+}
+
+#[test]
+fn dollar_int_atom() {
+    assert_eq!(run_str("$42"), "42");
+}
+
+#[test]
+fn dollar_negative_int() {
+    assert_eq!(run_str("$ -1"), "-1");
+}
+
+#[test]
+fn dollar_float_atom() {
+    assert_eq!(run_str("$3.5"), "3.5");
+}
+
+#[test]
+fn dollar_bool() {
+    // `0=0` is `1b`.
+    assert_eq!(run_str("$ 0 = 0"), "1b");
+    assert_eq!(run_str("$ 0 = 1"), "0b");
+}
+
 #[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).

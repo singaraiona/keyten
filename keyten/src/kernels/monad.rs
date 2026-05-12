@@ -7,6 +7,7 @@
 use crate::alloc::{alloc_atom, alloc_vec};
 use crate::ctx::{Ctx, KernelErr};
 use crate::kind::Kind;
+use crate::nulls::NULL_I64;
 use crate::obj::RefObj;
 use crate::sym::{intern, Sym};
 
@@ -81,6 +82,63 @@ pub fn enlist(x: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
 #[allow(dead_code)]
 fn _sym_marker(s: Sym) -> Sym {
     s
+}
+
+/// Monadic `$x` — convert an atom to a char vector (string). For now we
+/// support I64, F64, Bool, Sym atoms; vectors return KernelErr::Type
+/// pending a per-kind "format each element" pass.
+pub fn string_of(x: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    if !x.is_atom() {
+        // TODO: dollar on a vector → list of char-vectors per element.
+        return Err(KernelErr::Type);
+    }
+    let kind = x.kind();
+    let s: String = unsafe {
+        match kind {
+            Kind::Bool => {
+                let b = x.atom::<u8>();
+                if b == 0 { "0b".into() } else { "1b".into() }
+            }
+            Kind::I64 => {
+                let v = x.atom::<i64>();
+                if v == NULL_I64 { "0N".into() } else { format!("{v}") }
+            }
+            Kind::F64 => {
+                let v = x.atom::<f64>();
+                if v.is_nan() {
+                    "0n".into()
+                } else if v.is_infinite() {
+                    if v > 0.0 { "0w".into() } else { "-0w".into() }
+                } else {
+                    // K9 prints floats with a trailing `.` when integer-valued
+                    // to disambiguate from int. For now use Rust's default.
+                    format!("{v}")
+                }
+            }
+            Kind::Sym => {
+                let s = x.atom::<Sym>();
+                let bytes = s.0.to_le_bytes();
+                let len = bytes.iter().position(|&b| b == 0).unwrap_or(8);
+                std::str::from_utf8(&bytes[..len])
+                    .map_err(|_| KernelErr::Type)?
+                    .to_string()
+            }
+            Kind::Char => {
+                let c = x.atom::<u8>();
+                (c as char).to_string()
+            }
+            _ => return Err(KernelErr::Type),
+        }
+    };
+
+    // Build a Kind::Char vector with the string bytes.
+    let bytes = s.as_bytes();
+    let mut out = unsafe { alloc_vec(ctx, Kind::Char.vec(), bytes.len() as i64, 1) };
+    unsafe {
+        let dst = (out.as_ptr() as *mut u8).add(16);
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

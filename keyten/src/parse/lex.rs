@@ -36,6 +36,7 @@ pub enum TokenKind {
     Amp, // `&` — dyadic: min; monadic: where (reserved)
     Pipe, // `|` — dyadic: max; monadic: reverse (reserved)
     Underscore, // `_` — monadic: floor; dyadic: drop
+    Dollar, // `$` — monadic: string-convert; dyadic: parse-with-type (reserved)
 
     Slash, // `/` adverb
     Backslash, // `\` adverb (reserved)
@@ -235,6 +236,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             b'&' => TokenKind::Amp,
             b'|' => TokenKind::Pipe,
             b'_' => TokenKind::Underscore,
+            b'$' => TokenKind::Dollar,
             b'/' => TokenKind::Slash,
             b'\\' => TokenKind::Backslash,
             b':' => TokenKind::Colon,

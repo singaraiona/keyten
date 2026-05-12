@@ -43,9 +43,11 @@ pub enum OpId {
     Pipe = 13,
     /// `_` — monadic floor (f64 → i64); dyadic drop (`n_v` drops first n).
     Underscore = 14,
+    /// `$` — monadic: atom → char vector (string convert); dyadic: parse-with-type (reserved).
+    Dollar = 15,
 }
 
-pub const OP_COUNT: usize = 15;
+pub const OP_COUNT: usize = 16;
 
 // Function-pointer table of sync dispatch entries, indexed by `OpId as usize`.
 pub type DyadicFn = fn(RefObj, RefObj, &Ctx) -> Result<RefObj, KernelErr>;
@@ -66,6 +68,7 @@ pub static DYADIC: [DyadicFn; OP_COUNT] = [
     dispatch_amp,
     dispatch_pipe,
     dispatch_underscore,
+    dispatch_dollar,
 ];
 
 #[inline]
@@ -253,6 +256,21 @@ pub async fn dispatch_tilde_async(
     _ctx: &Ctx<'_>,
 ) -> Result<RefObj, KernelErr> {
     Ok(kernels::compare::match_objs(&x, &y))
+}
+
+// ---- `$` string convert (monadic) / parse (dyadic, reserved) -----------
+
+pub fn dispatch_dollar(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    // Dyadic `$` is parse-with-type: reserved.
+    Err(KernelErr::Type)
+}
+
+pub async fn dispatch_dollar_async(
+    _x: RefObj,
+    _y: RefObj,
+    _ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
 }
 
 // ---- `_` floor / drop --------------------------------------------------
