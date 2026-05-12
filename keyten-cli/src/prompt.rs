@@ -1,16 +1,19 @@
-//! reedline `Prompt` impl — minimal `k) ` prompt with subtle colouring.
+//! reedline `Prompt` impl.
+//!
+//! Main prompt is the mathematical double-struck k (`𝕜`) in bold cyan,
+//! followed by a thin space. Multi-line continuation is a centred dot.
 
 use std::borrow::Cow;
 
 use reedline::{
-    Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus, PromptViMode,
+    Color, Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus, PromptViMode,
 };
 
 pub struct KPrompt;
 
 impl Prompt for KPrompt {
     fn render_prompt_left(&self) -> Cow<'_, str> {
-        Cow::Borrowed("k) ")
+        Cow::Borrowed("\u{1D55C} ")
     }
     fn render_prompt_right(&self) -> Cow<'_, str> {
         Cow::Borrowed("")
@@ -24,7 +27,7 @@ impl Prompt for KPrompt {
         }
     }
     fn render_prompt_multiline_indicator(&self) -> Cow<'_, str> {
-        Cow::Borrowed("..   ")
+        Cow::Borrowed("\u{00B7} ") // middle dot
     }
     fn render_prompt_history_search_indicator(
         &self,
@@ -35,5 +38,18 @@ impl Prompt for KPrompt {
             PromptHistorySearchStatus::Failing => "(failing) ",
         };
         Cow::Owned(format!("({tag}reverse-i-search: {}) ", history_search.term))
+    }
+
+    fn get_prompt_color(&self) -> Color {
+        Color::Cyan
+    }
+    fn get_prompt_multiline_color(&self) -> nu_ansi_term::Color {
+        nu_ansi_term::Color::DarkGray
+    }
+    fn get_indicator_color(&self) -> Color {
+        Color::Cyan
+    }
+    fn get_prompt_right_color(&self) -> Color {
+        Color::DarkGrey
     }
 }

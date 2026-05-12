@@ -18,6 +18,7 @@ use reedline::{
 
 use keyten::Env;
 
+use crate::banner;
 use crate::completer::KCompleter;
 use crate::eval_runner::{run_one, Outcome};
 use crate::format::format;
@@ -40,7 +41,7 @@ pub fn run() -> Result<()> {
 
     let mut line_editor = build_editor(names.clone());
 
-    print_banner();
+    banner::print();
 
     loop {
         let sig = line_editor.read_line(&KPrompt);
@@ -150,14 +151,6 @@ fn render_outcome(outcome: Outcome) {
     let _ = io::stdout().flush();
 }
 
-fn print_banner() {
-    let line1 = Style::new().fg(Color::Cyan).bold().paint("keyten 0.1.0");
-    let line2 = Style::new()
-        .fg(Color::DarkGray)
-        .paint("  type expressions \u{2022} :help for help \u{2022} :q to quit");
-    println!("{line1}");
-    println!("{line2}");
-}
 
 fn handle_meta(line: &str) {
     match line {
