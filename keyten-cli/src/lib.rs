@@ -1,8 +1,12 @@
-//! Keyten REPL library. Exposed so integration tests can call into the
-//! pretty-printer and other internals without going through the TUI.
+//! Keyten REPL library — reedline-based line editor over the keyten runtime.
 
 pub mod app;
+pub mod completer;
+pub mod eval_runner;
 pub mod format;
+pub mod highlighter;
 pub mod history;
-pub mod sig;
-pub mod tui;
+pub mod names;
+pub mod progress;
+pub mod prompt;
+pub mod validator;

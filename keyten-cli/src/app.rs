@@ -1,403 +1,225 @@
-//! Main application loop. One `select!`, four event sources, no clock.
+//! Main REPL loop. reedline handles line editing + history + highlighting +
+//! completion; each successful line is handed to `eval_runner::run_one` which
+//! spins up a tokio runtime for that submission.
 
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::cell::RefCell;
+use std::io::{self, Write};
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+
+use std::io::BufRead;
 
 use anyhow::Result;
-use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind};
-use futures::StreamExt;
-use ratatui::layout::Rect;
-use ratatui::text::{Line, Span};
-use tokio::task::{JoinHandle, LocalSet};
+use nu_ansi_term::{Color, Style};
+use reedline::{
+    ColumnarMenu, DefaultHinter, Emacs, KeyCode, KeyModifiers, MenuBuilder, Reedline, ReedlineEvent,
+    ReedlineMenu, Signal,
+};
 
-use keyten::{Ctx, Env, EvalErr, KernelErr, RefObj, RenderSink, RUNTIME};
+use keyten::Env;
 
-use crate::format::{format, PrintOpts};
-use crate::history::History;
-use crate::tui::input::{InputArea, InputOutcome};
-use crate::tui::output::{Body, OutEntry, OutputBuffer};
-use crate::tui::status::{Progress, StatusBar, Throughput, SPINNER};
-use crate::tui::{layout, theme, Term};
+use crate::completer::KCompleter;
+use crate::eval_runner::{run_one, Outcome};
+use crate::format::format;
+use crate::highlighter::KHighlighter;
+use crate::history::open as open_history;
+use crate::names::{Names, SharedNames};
+use crate::prompt::KPrompt;
+use crate::validator::KValidator;
 
-pub async fn run(term: &mut Term) -> Result<()> {
-    let local = LocalSet::new();
-    local.run_until(async {
-        let mut app = App::new();
-        let res = app.event_loop(term).await;
-        app.history.save().ok();
-        res
-    }).await
-}
+pub fn run() -> Result<()> {
+    let env: Rc<RefCell<Env>> = Rc::new(RefCell::new(Env::new()));
+    let names: SharedNames = Arc::new(Mutex::new(Names::default()));
 
-struct App {
-    env: Env,
-    output: OutputBuffer,
-    input: InputArea,
-    history: History,
-
-    eval: Option<ActiveEval>,
-    throughput: Throughput,
-    spinner_tick: usize,
-
-    last_interrupt_at: Option<Instant>,
-    should_quit: bool,
-}
-
-struct ActiveEval {
-    cancelled: Arc<AtomicBool>,
-    progress: Arc<AtomicU64>,
-    sink: Arc<RenderSink>,
-    started_at: Instant,
-    source: String,
-    join: JoinHandle<EvalOutcome>,
-}
-
-enum EvalOutcome {
-    Ok(RefObj, Env),
-    Err(EvalErr, Env),
-    Kernel(KernelErr, Env),
-}
-
-impl App {
-    fn new() -> Self {
-        Self {
-            env: Env::new(),
-            output: OutputBuffer::default(),
-            input: InputArea::default(),
-            history: History::load(),
-            eval: None,
-            throughput: Throughput::new(),
-            spinner_tick: 0,
-            last_interrupt_at: None,
-            should_quit: false,
-        }
+    // If stdin is not a TTY, switch to a simple line-by-line mode so scripts
+    // can pipe expressions through.
+    if !is_stdin_tty() {
+        return run_pipe(env);
     }
 
-    async fn event_loop(&mut self, term: &mut Term) -> Result<()> {
-        let mut events = EventStream::new();
-        // Initial draw.
-        self.draw(term)?;
+    let mut line_editor = build_editor(names.clone());
 
-        loop {
-            // Snapshot the sink (cheap Arc clone) so the notify-await arm can
-            // borrow it without touching self.eval (which the join-await arm
-            // borrows mutably).
-            let sink = self.eval.as_ref().map(|a| a.sink.clone());
+    print_banner();
 
-            tokio::select! {
-                Some(Ok(ev)) = events.next() => {
-                    self.on_terminal(ev);
+    loop {
+        let sig = line_editor.read_line(&KPrompt);
+        match sig {
+            Ok(Signal::Success(text)) => {
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    continue;
                 }
-                outcome = wait_join(&mut self.eval) => {
-                    self.on_eval_done(outcome).await;
+                if trimmed.starts_with(':') {
+                    handle_meta(trimmed);
+                    continue;
                 }
-                _ = wait_notify(sink.as_ref()) => {
-                    self.on_render_notify();
+                let mut env_borrow = env.borrow_mut();
+                let outcome = run_one(&text, &mut env_borrow)?;
+                // Refresh the names registry so highlighter / completer see new bindings.
+                if let Ok(mut n) = names.lock() {
+                    n.refresh_from(&env_borrow);
                 }
-                _ = tokio::signal::ctrl_c() => {
-                    self.on_interrupt();
-                }
+                drop(env_borrow);
+                render_outcome(outcome);
             }
-            self.draw(term)?;
-            if self.should_quit {
+            Ok(Signal::CtrlC) => continue,
+            Ok(Signal::CtrlD) => {
+                println!();
+                break;
+            }
+            Err(err) => {
+                eprintln!("\nreedline error: {err}");
                 break;
             }
         }
-        Ok(())
     }
 
-    fn draw(&mut self, term: &mut Term) -> Result<()> {
-        term.draw(|f| {
-            let area = f.area();
-            let (output_area, input_area, status_area) = layout::split(area);
-            self.render_output(output_area, f.buffer_mut());
-            self.input.render(input_area, f.buffer_mut());
-            self.render_status(status_area, f.buffer_mut());
-        })?;
-        Ok(())
-    }
+    Ok(())
+}
 
-    fn render_output(&self, area: Rect, buf: &mut ratatui::buffer::Buffer) {
-        let busy = self.busy_status_line();
-        self.output.render(area, buf, busy);
-    }
+fn build_editor(names: SharedNames) -> Reedline {
+    let highlighter = Box::new(KHighlighter::new(names.clone()));
+    let completer = Box::new(KCompleter::new(names.clone()));
+    let validator = Box::new(KValidator);
+    let hinter = Box::new(DefaultHinter::default().with_style(Style::new().fg(Color::DarkGray)));
 
-    fn busy_status_line(&self) -> Option<Line<'static>> {
-        let active = self.eval.as_ref()?;
-        let elapsed = active.started_at.elapsed();
-        let processed = active.progress.load(Ordering::Relaxed);
-        let frame = SPINNER[self.spinner_tick % SPINNER.len()];
-        let s = format!(
-            "  {frame} {} elems   {:.1}s   {} elems/s    [^C] cancel",
-            fmt_count(processed),
-            elapsed.as_secs_f64(),
-            fmt_count(self.throughput.rate_eps as u64),
-        );
-        Some(Line::from(Span::styled(s, theme::STATUS_BUSY)))
-    }
+    let completion_menu = Box::new(
+        ColumnarMenu::default()
+            .with_name("completion_menu")
+            .with_columns(1),
+    );
 
-    fn render_status(&self, area: Rect, buf: &mut ratatui::buffer::Buffer) {
-        use ratatui::widgets::Widget;
-        let bar = if let Some(active) = &self.eval {
-            let p = active.progress.load(Ordering::Relaxed);
-            StatusBar {
-                idle_text: "",
-                progress: Some(Progress {
-                    elapsed: active.started_at.elapsed(),
-                    processed: p,
-                    total: None,
-                    throughput_eps: self.throughput.rate_eps,
-                    spinner_idx: self.spinner_tick,
-                }),
-            }
-        } else {
-            let idle = format!(
-                "ready  \u{2022}  vars {}  \u{2022}  history {}  \u{2022}  Ctrl-C \u{00D7}2 to quit",
-                self.env.len(),
-                self.history.len(),
+    let mut keybindings = reedline::default_emacs_keybindings();
+    keybindings.add_binding(
+        KeyModifiers::NONE,
+        KeyCode::Tab,
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::Menu("completion_menu".to_string()),
+            ReedlineEvent::MenuNext,
+        ]),
+    );
+
+    let edit_mode = Box::new(Emacs::new(keybindings));
+
+    let mut editor = Reedline::create()
+        .with_highlighter(highlighter)
+        .with_completer(completer)
+        .with_validator(validator)
+        .with_hinter(hinter)
+        .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+        .with_edit_mode(edit_mode);
+
+    if let Some(history) = open_history() {
+        editor = editor.with_history(Box::new(history));
+    }
+    editor
+}
+
+fn render_outcome(outcome: Outcome) {
+    match outcome {
+        Outcome::Ok(value) => {
+            let s = format(&value);
+            println!("{s}");
+        }
+        Outcome::Cancelled => {
+            println!("{}", Style::new().fg(Color::Yellow).paint("cancelled"));
+        }
+        Outcome::Err(msg) => {
+            println!(
+                "{}",
+                Style::new()
+                    .fg(Color::Red)
+                    .bold()
+                    .paint(format!("error: {msg}"))
             );
-            // Store in `self` would need mutability; render with a static string built here.
-            let leaked: &'static str = Box::leak(idle.into_boxed_str());
-            StatusBar {
-                idle_text: leaked,
-                progress: None,
-            }
-        };
-        bar.render(area, buf);
-    }
-
-    fn on_terminal(&mut self, ev: Event) {
-        if let Event::Key(key) = ev {
-            // Ignore key-release events on Windows-style backends.
-            if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
-                return;
-            }
-            // Ctrl-C is delivered separately by tokio::signal::ctrl_c, but most
-            // terminals also emit it as a Ctrl-C key event. Treat both equivalently.
-            if matches!(key.code, KeyCode::Char('c'))
-                && key
-                    .modifiers
-                    .contains(crossterm::event::KeyModifiers::CONTROL)
-            {
-                self.on_interrupt();
-                return;
-            }
-            // Eval running? Only Ctrl-C and scroll are meaningful.
-            if self.eval.is_some() {
-                if matches!(key.code, KeyCode::PageUp) {
-                    self.output.scroll_up(4);
-                } else if matches!(key.code, KeyCode::PageDown) {
-                    self.output.scroll_down(4);
-                }
-                return;
-            }
-            match self.input.handle_key(key, &self.history) {
-                InputOutcome::Submit(text) => {
-                    self.history.push(text.clone());
-                    self.spawn_eval(text);
-                }
-                InputOutcome::ScrollUp => self.output.scroll_up(4),
-                InputOutcome::ScrollDown => self.output.scroll_down(4),
-                _ => {}
-            }
         }
     }
+    let _ = io::stdout().flush();
+}
 
-    fn spawn_eval(&mut self, source: String) {
-        // Push the input as an "Active" entry so the user sees it immediately.
-        self.output.push(OutEntry {
-            prompt: "k) ".into(),
-            source: source.clone(),
-            body: Body::Active,
-        });
+fn print_banner() {
+    let line1 = Style::new().fg(Color::Cyan).bold().paint("keyten 0.1.0");
+    let line2 = Style::new()
+        .fg(Color::DarkGray)
+        .paint("  type expressions \u{2022} :help for help \u{2022} :q to quit");
+    println!("{line1}");
+    println!("{line2}");
+}
 
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let progress = Arc::new(AtomicU64::new(0));
-        let sink = Arc::new(RenderSink::with_stride(pick_stride_default()));
-
-        // Move ownership of the env into the task; on completion the task
-        // returns it back so we can re-install with new bindings.
-        let env = std::mem::take(&mut self.env);
-        let cancelled_clone = cancelled.clone();
-        let progress_clone = progress.clone();
-        let sink_clone = sink.clone();
-        let src_for_task = source.clone();
-        let join = tokio::task::spawn_local(async move {
-            let mut env = env;
-            let mut ctx = Ctx::new(&RUNTIME, &cancelled_clone, &progress_clone);
-            ctx.render = Some(&sink_clone);
-            let parsed = match keyten::parse(&src_for_task) {
-                Ok(e) => e,
-                Err(e) => {
-                    return EvalOutcome::Err(
-                        EvalErr::Type {
-                            msg: format!("parse error: {}", e.msg),
-                            span: e.span,
-                        },
-                        env,
-                    );
-                }
-            };
-            match keyten::eval_async(&parsed, &mut env, &ctx).await {
-                Ok(v) => EvalOutcome::Ok(v, env),
-                Err(EvalErr::Kernel { err, .. }) => EvalOutcome::Kernel(err, env),
-                Err(e) => EvalOutcome::Err(e, env),
-            }
-        });
-
-        self.throughput.reset();
-        self.eval = Some(ActiveEval {
-            cancelled,
-            progress,
-            sink,
-            started_at: Instant::now(),
-            source,
-            join,
-        });
-    }
-
-    fn on_render_notify(&mut self) {
-        if let Some(active) = self.eval.as_ref() {
-            let p = active.progress.load(Ordering::Relaxed);
-            self.throughput.observe(p);
-            self.spinner_tick = self.spinner_tick.wrapping_add(1);
+fn handle_meta(line: &str) {
+    match line {
+        ":q" | ":quit" | ":exit" => {
+            println!();
+            std::process::exit(0);
         }
+        ":h" | ":help" => print_help(),
+        _ => println!(
+            "{}",
+            Style::new()
+                .fg(Color::Red)
+                .paint(format!("unknown command `{line}`"))
+        ),
     }
+}
 
-    async fn on_eval_done(&mut self, outcome: Option<EvalOutcome>) {
-        let Some(active) = self.eval.take() else {
-            return;
+fn is_stdin_tty() -> bool {
+    // Best-effort TTY check via libc::isatty on fd 0.
+    #[cfg(unix)]
+    unsafe {
+        extern "C" {
+            fn isatty(fd: i32) -> i32;
+        }
+        isatty(0) != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+/// Non-interactive mode: read lines from stdin, evaluate each, print result.
+/// No colours, no prompt, no editing — suitable for `echo … | keyten` or
+/// `keyten < file.k`.
+fn run_pipe(env: Rc<RefCell<Env>>) -> Result<()> {
+    let stdin = std::io::stdin();
+    let lock = stdin.lock();
+    for line in lock.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break,
         };
-        let outcome = match outcome {
-            Some(o) => o,
-            None => {
-                if let Some(entry) = self.output.last_mut() {
-                    entry.body = Body::Err {
-                        message: "eval task crashed".into(),
-                        caret: None,
-                    };
-                }
-                return;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('/') {
+            continue;
+        }
+        if trimmed.starts_with(':') {
+            match trimmed {
+                ":q" | ":quit" | ":exit" => break,
+                _ => continue, // :help etc. are silent in pipe mode
             }
-        };
-        let final_progress = active.progress.load(Ordering::Relaxed);
-        self.throughput.observe(final_progress);
-        let started_at = active.started_at;
-        let source = active.source.clone();
-        drop(active); // release the JoinHandle etc.
-        let _ = started_at;
-        let _ = source;
-
+        }
+        let mut env_borrow = env.borrow_mut();
+        let outcome = run_one(trimmed, &mut env_borrow)?;
+        drop(env_borrow);
         match outcome {
-            EvalOutcome::Ok(value, env) => {
-                self.env = env;
-                let lines = format(&value, &PrintOpts::default());
-                let took = started_at.elapsed();
-                if let Some(entry) = self.output.last_mut() {
-                    entry.body = Body::Ok { lines, took };
-                }
-            }
-            EvalOutcome::Err(err, env) => {
-                self.env = env;
-                let (message, caret) = format_eval_err(err, &source);
-                if let Some(entry) = self.output.last_mut() {
-                    entry.body = Body::Err { message, caret };
-                }
-            }
-            EvalOutcome::Kernel(err, env) => {
-                self.env = env;
-                let msg = match err {
-                    KernelErr::Cancelled => "cancelled".into(),
-                    KernelErr::Oom => "out of memory".into(),
-                    KernelErr::Type => "type error".into(),
-                    KernelErr::Shape => "shape error".into(),
-                };
-                if let Some(entry) = self.output.last_mut() {
-                    entry.body = Body::Err {
-                        message: msg,
-                        caret: None,
-                    };
-                }
-            }
+            Outcome::Ok(v) => println!("{}", format(&v)),
+            Outcome::Cancelled => println!("cancelled"),
+            Outcome::Err(msg) => eprintln!("error: {msg}"),
         }
     }
-
-    fn on_interrupt(&mut self) {
-        let now = Instant::now();
-        if let Some(active) = &self.eval {
-            active.cancelled.store(true, Ordering::Relaxed);
-            self.last_interrupt_at = Some(now);
-            return;
-        }
-        // Idle: two presses within 500 ms quit.
-        if let Some(prev) = self.last_interrupt_at {
-            if now.duration_since(prev) < Duration::from_millis(500) {
-                self.should_quit = true;
-                return;
-            }
-        }
-        self.last_interrupt_at = Some(now);
-    }
+    Ok(())
 }
 
-/// Wait for the active eval's JoinHandle to resolve, without consuming it
-/// from the Option. Returns `Some(outcome)` on success, `None` if the task
-/// panicked, and never resolves when there is no active eval.
-async fn wait_join(eval: &mut Option<ActiveEval>) -> Option<EvalOutcome> {
-    match eval.as_mut() {
-        Some(active) => {
-            let res = std::future::poll_fn(|cx| Pin::new(&mut active.join).poll(cx)).await;
-            match res {
-                Ok(o) => Some(o),
-                Err(_) => None,
-            }
-        }
-        None => {
-            std::future::pending::<()>().await;
-            unreachable!()
-        }
-    }
-}
-
-/// Wait on the active eval's RenderSink notification. Resolves never when
-/// there is no active eval.
-async fn wait_notify(sink: Option<&Arc<RenderSink>>) {
-    match sink {
-        Some(s) => s.notify.notified().await,
-        None => std::future::pending().await,
-    }
-}
-
-fn pick_stride_default() -> u64 {
-    // Default: signal every ~1M elements processed. Adaptive tuning lands
-    // when we observe how fast the UI is actually being woken.
-    1 << 20
-}
-
-fn fmt_count(n: u64) -> String {
-    if n < 1_000 {
-        n.to_string()
-    } else if n < 1_000_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else if n < 1_000_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else {
-        format!("{:.2}B", n as f64 / 1_000_000_000.0)
-    }
-}
-
-fn format_eval_err(err: EvalErr, _source: &str) -> (String, Option<String>) {
-    match err {
-        EvalErr::UndefinedName { name, .. } => {
-            let bytes = name.0.to_le_bytes();
-            let s: String = bytes.iter().copied().take_while(|b| *b != 0).map(|b| b as char).collect();
-            (format!("undefined name `{s}`"), None)
-        }
-        EvalErr::Kernel { err, .. } => (format!("kernel: {err:?}"), None),
-        EvalErr::Type { msg, .. } => (msg, None),
-        EvalErr::Empty => ("empty expression".into(), None),
-    }
+fn print_help() {
+    let dim = Style::new().fg(Color::DarkGray);
+    println!("Built-in verbs:  +  -  *  %");
+    println!("Adverbs:         +/  (over)");
+    println!("Atoms:           42  3.14  \"a\"  `sym  0N  0n  0W  0w");
+    println!("Vectors:         1 2 3   1.5 2.5 3.5   `a`b `c");
+    println!("Assignment:      x: 1 2 3");
+    println!("Sequence:        a; b; c  (returns last)");
+    println!(
+        "{}",
+        dim.paint("Meta: :help :q  |  Tab completes names  |  Ctrl-C cancels a running op")
+    );
 }
