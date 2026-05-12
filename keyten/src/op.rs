@@ -23,9 +23,15 @@ pub enum OpId {
     Div = 3,
     /// `!` — monadic: til (`!n` → `0 1 … n−1`); dyadic: mod (reserved).
     Bang = 4,
+    /// `@` — monadic: type accessor (`@x` → `` `i `` etc.); dyadic: index/apply (reserved).
+    At = 5,
+    /// `#` — monadic: count (`#x` → length); dyadic: take (reserved).
+    Hash = 6,
+    /// `,` — monadic: enlist (`,x` → one-element list); dyadic: concatenate (reserved).
+    Comma = 7,
 }
 
-pub const OP_COUNT: usize = 5;
+pub const OP_COUNT: usize = 8;
 
 // Function-pointer table of sync dispatch entries, indexed by `OpId as usize`.
 pub type DyadicFn = fn(RefObj, RefObj, &Ctx) -> Result<RefObj, KernelErr>;
@@ -36,6 +42,9 @@ pub static DYADIC: [DyadicFn; OP_COUNT] = [
     dispatch_times,
     dispatch_div,
     dispatch_bang,
+    dispatch_at,
+    dispatch_hash,
+    dispatch_comma,
 ];
 
 #[inline]
@@ -123,6 +132,45 @@ pub fn dispatch_bang(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, Kerne
 }
 
 pub async fn dispatch_bang_async(
+    _x: RefObj,
+    _y: RefObj,
+    _ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+
+/// `x @ y` — index/apply. Reserved.
+pub fn dispatch_at(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+
+pub async fn dispatch_at_async(
+    _x: RefObj,
+    _y: RefObj,
+    _ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+
+/// `n # y` — take. Reserved.
+pub fn dispatch_hash(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+
+pub async fn dispatch_hash_async(
+    _x: RefObj,
+    _y: RefObj,
+    _ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+
+/// `x , y` — concatenate. Reserved for now.
+pub fn dispatch_comma(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+
+pub async fn dispatch_comma_async(
     _x: RefObj,
     _y: RefObj,
     _ctx: &Ctx<'_>,

@@ -85,6 +85,9 @@ fn eval_boxed<'a, 'r>(
                     op::OpId::Times => op::dispatch_times_async(x, y, ctx).await,
                     op::OpId::Div => op::dispatch_div_async(x, y, ctx).await,
                     op::OpId::Bang => op::dispatch_bang_async(x, y, ctx).await,
+                    op::OpId::At => op::dispatch_at_async(x, y, ctx).await,
+                    op::OpId::Hash => op::dispatch_hash_async(x, y, ctx).await,
+                    op::OpId::Comma => op::dispatch_comma_async(x, y, ctx).await,
                 };
                 r.map_err(|e| EvalErr::Kernel { err: e, span: *span })
             }
@@ -97,6 +100,12 @@ fn eval_boxed<'a, 'r>(
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     op::OpId::Bang => crate::kernels::til::til_async(x, ctx)
                         .await
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::At => crate::kernels::monad::type_of(x)
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Hash => crate::kernels::monad::count(x)
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Comma => crate::kernels::monad::enlist(x, ctx)
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     _ => Err(EvalErr::Type {
                         msg: "monadic form not supported for this verb in v1".into(),

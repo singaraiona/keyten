@@ -26,6 +26,9 @@ pub enum TokenKind {
     Times,
     Div,
     Bang, // `!` — monadic: til (range); dyadic: mod (reserved)
+    At, // `@` — monadic: type accessor; dyadic: index/apply (reserved)
+    Hash, // `#` — monadic: count; dyadic: take (reserved)
+    Comma, // `,` — monadic: enlist; dyadic: concatenate (reserved)
 
     Slash, // `/` adverb
     Backslash, // `\` adverb (reserved)
@@ -213,6 +216,9 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             b'*' => TokenKind::Times,
             b'%' => TokenKind::Div,
             b'!' => TokenKind::Bang,
+            b'@' => TokenKind::At,
+            b'#' => TokenKind::Hash,
+            b',' => TokenKind::Comma,
             b'/' => TokenKind::Slash,
             b'\\' => TokenKind::Backslash,
             b':' => TokenKind::Colon,

@@ -151,6 +151,77 @@ fn til_bound_to_var_then_summed() {
     assert_eq!(unsafe { r.atom::<i64>() }, 45);
 }
 
+// =======================================================================
+// Phase 2 verbs: `@` (type), `#` (count), `,` (enlist)
+// =======================================================================
+
+#[test]
+fn type_at_returns_letter_atom() {
+    use keyten::sym::intern;
+    let r = run("@42");
+    // I64 atom → `j (the K9 default int letter)
+    assert_eq!(r.kind(), Kind::Sym);
+    let s = unsafe { r.atom::<keyten::Sym>() };
+    assert_eq!(s, intern("j").unwrap());
+}
+
+#[test]
+fn type_at_vector_returns_uppercase() {
+    use keyten::sym::intern;
+    let r = run("@1 2 3");
+    let s = unsafe { r.atom::<keyten::Sym>() };
+    assert_eq!(s, intern("J").unwrap());
+}
+
+#[test]
+fn type_at_float_atom_and_vec() {
+    use keyten::sym::intern;
+    let r = run("@3.14");
+    let s = unsafe { r.atom::<keyten::Sym>() };
+    assert_eq!(s, intern("f").unwrap());
+    let r = run("@1.0 2.0");
+    let s = unsafe { r.atom::<keyten::Sym>() };
+    assert_eq!(s, intern("F").unwrap());
+}
+
+#[test]
+fn count_hash_atom_is_one() {
+    let r = run("#42");
+    assert_eq!(unsafe { r.atom::<i64>() }, 1);
+}
+
+#[test]
+fn count_hash_vector() {
+    let r = run("#1 2 3 4 5");
+    assert_eq!(unsafe { r.atom::<i64>() }, 5);
+}
+
+#[test]
+fn count_hash_til_n() {
+    let r = run("#!1000");
+    assert_eq!(unsafe { r.atom::<i64>() }, 1000);
+}
+
+#[test]
+fn enlist_comma_atom_makes_unit_vector() {
+    let r = run(",42");
+    assert!(r.is_vec());
+    assert_eq!(r.kind(), Kind::I64);
+    assert_eq!(r.len(), 1);
+    let s = unsafe { r.as_slice::<i64>() };
+    assert_eq!(s, &[42]);
+}
+
+#[test]
+fn enlist_comma_float_atom() {
+    let r = run(",3.5");
+    assert!(r.is_vec());
+    assert_eq!(r.kind(), Kind::F64);
+    assert_eq!(r.len(), 1);
+    let s = unsafe { r.as_slice::<f64>() };
+    assert_eq!(s, &[3.5]);
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn eval_async_runs_under_tokio() {
     let expr = parse("+/ 1 2 3 4 5").unwrap();

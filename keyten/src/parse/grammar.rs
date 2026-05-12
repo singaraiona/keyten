@@ -57,6 +57,9 @@ fn verb_of(kind: &TokenKind) -> Option<OpId> {
         TokenKind::Times => Some(OpId::Times),
         TokenKind::Div => Some(OpId::Div),
         TokenKind::Bang => Some(OpId::Bang),
+        TokenKind::At => Some(OpId::At),
+        TokenKind::Hash => Some(OpId::Hash),
+        TokenKind::Comma => Some(OpId::Comma),
         _ => None,
     }
 }

@@ -28,7 +28,7 @@ pub const US_PER_DAY: i64 = 86_400_000_000;
 pub const NS_PER_DAY: i64 = 86_400_000_000_000;
 
 #[inline]
-fn is_leap_year(y: i32) -> bool {
+pub fn is_leap_year(y: i32) -> bool {
     (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
 
