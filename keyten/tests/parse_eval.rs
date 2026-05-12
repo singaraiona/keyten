@@ -662,6 +662,14 @@ fn bang_dict_returns_keys() {
 }
 
 #[test]
+fn dot_dict_returns_values() {
+    let r = run(".1 2 3 ! 10 20 30");
+    assert!(r.is_vec());
+    assert_eq!(r.kind(), Kind::I64);
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[10, 20, 30]);
+}
+
+#[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).
     // For !N, +\!N[i] = i*(i+1)/2.

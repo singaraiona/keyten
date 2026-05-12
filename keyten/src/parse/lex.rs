@@ -39,6 +39,7 @@ pub enum TokenKind {
     Dollar, // `$` — monadic: string-convert; dyadic: parse-with-type (reserved)
     Caret, // `^` — monadic: sort ascending; dyadic: cut/partition (reserved)
     Question, // `?` — monadic: unique; dyadic: find/random (reserved)
+    Dot, // `.` — monadic: value (dict→values, etc.); dyadic: apply (reserved, needs Lambda)
 
     Slash, // `/` adverb (over)
     Backslash, // `\` adverb (scan)
@@ -242,6 +243,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             b'$' => TokenKind::Dollar,
             b'^' => TokenKind::Caret,
             b'?' => TokenKind::Question,
+            b'.' => TokenKind::Dot,
             b'/' => TokenKind::Slash,
             b'\\' => TokenKind::Backslash,
             b'\'' => TokenKind::Tick,

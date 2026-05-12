@@ -70,6 +70,7 @@ fn verb_of(kind: &TokenKind) -> Option<OpId> {
         TokenKind::Dollar => Some(OpId::Dollar),
         TokenKind::Caret => Some(OpId::Caret),
         TokenKind::Question => Some(OpId::Question),
+        TokenKind::Dot => Some(OpId::Dot),
         _ => None,
     }
 }

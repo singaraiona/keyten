@@ -49,9 +49,11 @@ pub enum OpId {
     Caret = 16,
     /// `?` — monadic: unique (distinct values in first-seen order). Dyadic: find / random (reserved).
     Question = 17,
+    /// `.` — monadic: value (dict → values, etc.). Dyadic: apply (needs Lambda v1.1).
+    Dot = 18,
 }
 
-pub const OP_COUNT: usize = 18;
+pub const OP_COUNT: usize = 19;
 
 // Function-pointer table of sync dispatch entries, indexed by `OpId as usize`.
 pub type DyadicFn = fn(RefObj, RefObj, &Ctx) -> Result<RefObj, KernelErr>;
@@ -75,6 +77,7 @@ pub static DYADIC: [DyadicFn; OP_COUNT] = [
     dispatch_dollar,
     dispatch_caret,
     dispatch_question,
+    dispatch_dot,
 ];
 
 #[inline]
@@ -320,6 +323,19 @@ pub fn dispatch_question(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, K
     Err(KernelErr::Type)
 }
 pub async fn dispatch_question_async(
+    _x: RefObj,
+    _y: RefObj,
+    _ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+
+// ---- `.` value (monadic) / apply (dyadic, needs Lambda) ----------------
+
+pub fn dispatch_dot(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+pub async fn dispatch_dot_async(
     _x: RefObj,
     _y: RefObj,
     _ctx: &Ctx<'_>,

@@ -98,6 +98,7 @@ fn eval_boxed<'a, 'r>(
                     op::OpId::Dollar => op::dispatch_dollar_async(x, y, ctx).await,
                     op::OpId::Caret => op::dispatch_caret_async(x, y, ctx).await,
                     op::OpId::Question => op::dispatch_question_async(x, y, ctx).await,
+                    op::OpId::Dot => op::dispatch_dot_async(x, y, ctx).await,
                 };
                 r.map_err(|e| EvalErr::Kernel { err: e, span: *span })
             }
@@ -142,6 +143,20 @@ fn eval_boxed<'a, 'r>(
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     op::OpId::Amp => crate::kernels::setops::where_indices(x, ctx)
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Dot => {
+                        // K9: `.dict` returns the values vector. Other
+                        // monadic-dot forms (value of code, etc.) need
+                        // Phase 1 lambdas and an eval-from-string path.
+                        if x.kind() == Kind::Dict {
+                            crate::kernels::dict::dict_values(&x)
+                                .map_err(|e| EvalErr::Kernel { err: e, span: *span })
+                        } else {
+                            Err(EvalErr::Type {
+                                msg: "monadic `.` on non-dict input not implemented in v1".into(),
+                                span: *span,
+                            })
+                        }
+                    }
                     _ => Err(EvalErr::Type {
                         msg: "monadic form not supported for this verb in v1".into(),
                         span: *span,
