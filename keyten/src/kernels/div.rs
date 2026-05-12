@@ -2,13 +2,14 @@
 //! dispatcher.
 
 use crate::alloc::{alloc_atom, alloc_vec_f64};
-use crate::chunk::{drive_async, ChunkStep};
+use crate::chunk::{drive_async, drive_sync, ChunkStep};
 use crate::ctx::{Ctx, KernelErr};
 use crate::exec::block_on;
 use crate::kernels::F64_CHUNK;
 use crate::kind::Kind;
 use crate::madvise::madvise_dontneed_slice;
 use crate::obj::{attr_flags, RefObj};
+use crate::parallel;
 use crate::simd;
 
 pub struct DivF64VecVec<'a> { x: &'a [f64], y: &'a [f64], out: &'a mut [f64], off: usize, chunk: usize }
@@ -84,10 +85,25 @@ pub async unsafe fn div_f64_f64_async(x: RefObj, y: RefObj, ctx: &Ctx<'_>) -> Re
             let ys = y.as_slice::<f64>();
             if xs.len() != ys.len() { return Err(KernelErr::Shape); }
             let mut out = alloc_vec_f64(ctx, xs.len() as i64);
+            let go_parallel = ctx.runtime.parallel_enabled()
+                && xs.len() >= parallel::PARALLEL_THRESHOLD;
             {
                 let os = out.as_mut_slice::<f64>();
-                let mut k = DivF64VecVec { x: xs, y: ys, out: os, off: 0, chunk };
-                drive_async(&mut k, ctx).await?;
+                if go_parallel {
+                    parallel::parallel_for_each_mut(os, ctx, |range, my_os| {
+                        let mut k = DivF64VecVec {
+                            x: &xs[range.clone()],
+                            y: &ys[range],
+                            out: my_os,
+                            off: 0,
+                            chunk,
+                        };
+                        drive_sync(&mut k, ctx)
+                    })?;
+                } else {
+                    let mut k = DivF64VecVec { x: xs, y: ys, out: os, off: 0, chunk };
+                    drive_async(&mut k, ctx).await?;
+                }
             }
             out.set_attr(attr_flags::HAS_NULLS);
             Ok(out)

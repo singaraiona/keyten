@@ -1,7 +1,7 @@
 //! `×` (times) kernels for I64 and F64.
 
 use crate::alloc::{alloc_atom, alloc_vec_f64, alloc_vec_i64};
-use crate::chunk::{drive_async, ChunkStep};
+use crate::chunk::{drive_async, drive_sync, ChunkStep};
 use crate::ctx::{Ctx, KernelErr};
 use crate::exec::block_on;
 use crate::kernels::{F64_CHUNK, I64_CHUNK};
@@ -9,6 +9,7 @@ use crate::kind::Kind;
 use crate::madvise::madvise_dontneed_slice;
 use crate::nulls::NULL_I64;
 use crate::obj::{attr_flags, RefObj};
+use crate::parallel;
 use crate::simd;
 
 // ---- I64 ChunkStep impls ----
@@ -66,13 +67,29 @@ pub async unsafe fn times_i64_i64_async(x: RefObj, y: RefObj, ctx: &Ctx<'_>) -> 
             if xs.len() != ys.len() { return Err(KernelErr::Shape); }
             let mut out = alloc_vec_i64(ctx, xs.len() as i64);
             let has_nulls = (x.attr() | y.attr()) & attr_flags::HAS_NULLS != 0;
+            let go_parallel = !has_nulls
+                && ctx.runtime.parallel_enabled()
+                && xs.len() >= parallel::PARALLEL_THRESHOLD;
             {
                 let os = out.as_mut_slice::<i64>();
-                let mut k = MulI64VecVec { x: xs, y: ys, out: os, off: 0, chunk };
-                drive_async(&mut k, ctx).await?;
-                if has_nulls {
-                    for i in 0..xs.len() {
-                        if xs[i] == NULL_I64 || ys[i] == NULL_I64 { os[i] = NULL_I64; }
+                if go_parallel {
+                    parallel::parallel_for_each_mut(os, ctx, |range, my_os| {
+                        let mut k = MulI64VecVec {
+                            x: &xs[range.clone()],
+                            y: &ys[range],
+                            out: my_os,
+                            off: 0,
+                            chunk,
+                        };
+                        drive_sync(&mut k, ctx)
+                    })?;
+                } else {
+                    let mut k = MulI64VecVec { x: xs, y: ys, out: os, off: 0, chunk };
+                    drive_async(&mut k, ctx).await?;
+                    if has_nulls {
+                        for i in 0..xs.len() {
+                            if xs[i] == NULL_I64 || ys[i] == NULL_I64 { os[i] = NULL_I64; }
+                        }
                     }
                 }
             }
@@ -138,10 +155,25 @@ pub async unsafe fn times_f64_f64_async(x: RefObj, y: RefObj, ctx: &Ctx<'_>) -> 
             let ys = y.as_slice::<f64>();
             if xs.len() != ys.len() { return Err(KernelErr::Shape); }
             let mut out = alloc_vec_f64(ctx, xs.len() as i64);
+            let go_parallel = ctx.runtime.parallel_enabled()
+                && xs.len() >= parallel::PARALLEL_THRESHOLD;
             {
                 let os = out.as_mut_slice::<f64>();
-                let mut k = MulF64VecVec { x: xs, y: ys, out: os, off: 0, chunk };
-                drive_async(&mut k, ctx).await?;
+                if go_parallel {
+                    parallel::parallel_for_each_mut(os, ctx, |range, my_os| {
+                        let mut k = MulF64VecVec {
+                            x: &xs[range.clone()],
+                            y: &ys[range],
+                            out: my_os,
+                            off: 0,
+                            chunk,
+                        };
+                        drive_sync(&mut k, ctx)
+                    })?;
+                } else {
+                    let mut k = MulF64VecVec { x: xs, y: ys, out: os, off: 0, chunk };
+                    drive_async(&mut k, ctx).await?;
+                }
             }
             if (x.attr() | y.attr()) & attr_flags::HAS_NULLS != 0 {
                 out.set_attr(attr_flags::HAS_NULLS);
