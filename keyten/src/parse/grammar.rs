@@ -31,6 +31,36 @@ pub struct ParseErr {
     pub span: Span,
 }
 
+/// Whether a token kind can appear as the *result* position of an expression
+/// (i.e. produces a value). Used to decide if the next verb is dyadic.
+fn is_value_producing(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Int(_)
+            | TokenKind::Float(_)
+            | TokenKind::Str(_)
+            | TokenKind::Sym(_)
+            | TokenKind::Ident(_)
+            | TokenKind::NullI64
+            | TokenKind::NullF64
+            | TokenKind::InfI64
+            | TokenKind::InfF64
+            | TokenKind::RParen
+    )
+}
+
+/// Map a token kind to its `OpId`. Returns `None` if the token isn't a verb.
+fn verb_of(kind: &TokenKind) -> Option<OpId> {
+    match kind {
+        TokenKind::Plus => Some(OpId::Plus),
+        TokenKind::Minus => Some(OpId::Minus),
+        TokenKind::Times => Some(OpId::Times),
+        TokenKind::Div => Some(OpId::Div),
+        TokenKind::Bang => Some(OpId::Bang),
+        _ => None,
+    }
+}
+
 pub fn parse_program(src: &str, tokens: &[Token]) -> Result<Expr, ParseErr> {
     let mut p = Parser { src, tokens, pos: 0 };
     let stmts = p.parse_program()?;
@@ -144,32 +174,24 @@ impl<'a> Parser<'a> {
         self.parse_prefix()
     }
 
-    /// Monadic `+` / `-` before any primary. Bows out if the next token is an
+    /// Monadic verb before any primary. Bows out if the next token is an
     /// adverb (`/`, `\`) — that form is `V/x`, parsed in `parse_primary`.
     fn parse_prefix(&mut self) -> Result<Expr, ParseErr> {
         if let Some(t) = self.peek() {
-            if matches!(t.kind, TokenKind::Plus | TokenKind::Minus | TokenKind::Times | TokenKind::Div) {
-                // Defer to primary if this is an adverb form `V/x` or `V\x`.
+            if verb_of(&t.kind).is_some() {
                 let next = self.peek_at(1).map(|x| &x.kind);
                 if matches!(next, Some(TokenKind::Slash) | Some(TokenKind::Backslash)) {
                     return self.parse_infix();
                 }
-            }
-            match t.kind {
-                TokenKind::Plus | TokenKind::Minus => {
+                if let Some(verb) = verb_of(&t.kind) {
+                    // Monadic-position rule: monadic when the previous token is
+                    // *not* a value-producing token (i.e. not an atom/identifier/closing paren).
+                    let prev = self.tokens.get(self.pos.wrapping_sub(1));
                     let allow_monadic = self.pos == 0
-                        || matches!(
-                            self.tokens.get(self.pos - 1).map(|x| &x.kind),
-                            Some(TokenKind::Semicolon)
-                                | Some(TokenKind::Colon)
-                                | Some(TokenKind::LParen)
-                        );
+                        || prev
+                            .map(|t| !is_value_producing(&t.kind))
+                            .unwrap_or(true);
                     if allow_monadic {
-                        let verb = match t.kind {
-                            TokenKind::Plus => OpId::Plus,
-                            TokenKind::Minus => OpId::Minus,
-                            _ => unreachable!(),
-                        };
                         let start = t.span;
                         self.bump();
                         let arg = self.parse_prefix()?;
@@ -181,7 +203,6 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                _ => {}
             }
         }
         self.parse_infix()
@@ -191,14 +212,7 @@ impl<'a> Parser<'a> {
     fn parse_infix(&mut self) -> Result<Expr, ParseErr> {
         let lhs = self.parse_primary()?;
         if let Some(t) = self.peek() {
-            let verb = match t.kind {
-                TokenKind::Plus => Some(OpId::Plus),
-                TokenKind::Minus => Some(OpId::Minus),
-                TokenKind::Times => Some(OpId::Times),
-                TokenKind::Div => Some(OpId::Div),
-                _ => None,
-            };
-            if let Some(v) = verb {
+            if let Some(v) = verb_of(&t.kind) {
                 self.bump();
                 let rhs = self.parse_expr()?;
                 let span = Span::merge(lhs.span(), rhs.span());
@@ -217,13 +231,7 @@ impl<'a> Parser<'a> {
     fn parse_primary(&mut self) -> Result<Expr, ParseErr> {
         // Adverb form: V/x (or V\x).
         if let Some(t) = self.peek() {
-            let verb = match t.kind {
-                TokenKind::Plus => Some(OpId::Plus),
-                TokenKind::Minus => Some(OpId::Minus),
-                TokenKind::Times => Some(OpId::Times),
-                TokenKind::Div => Some(OpId::Div),
-                _ => None,
-            };
+            let verb = verb_of(&t.kind);
             if let Some(v) = verb {
                 if let Some(t1) = self.peek_at(1) {
                     if matches!(t1.kind, TokenKind::Slash | TokenKind::Backslash) {

@@ -21,9 +21,11 @@ pub enum OpId {
     Minus = 1,
     Times = 2,
     Div = 3,
+    /// `!` — monadic: til (`!n` → `0 1 … n−1`); dyadic: mod (reserved).
+    Bang = 4,
 }
 
-pub const OP_COUNT: usize = 4;
+pub const OP_COUNT: usize = 5;
 
 // Function-pointer table of sync dispatch entries, indexed by `OpId as usize`.
 pub type DyadicFn = fn(RefObj, RefObj, &Ctx) -> Result<RefObj, KernelErr>;
@@ -33,6 +35,7 @@ pub static DYADIC: [DyadicFn; OP_COUNT] = [
     dispatch_minus,
     dispatch_times,
     dispatch_div,
+    dispatch_bang,
 ];
 
 #[inline]
@@ -112,6 +115,19 @@ pub fn dispatch_times(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelE
 
 pub fn dispatch_div(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
     block_on(dispatch_div_async(x, y, ctx))
+}
+
+/// `x ! y` — modulo. Not implemented in v1; returns a type error.
+pub fn dispatch_bang(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+
+pub async fn dispatch_bang_async(
+    _x: RefObj,
+    _y: RefObj,
+    _ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
 }
 
 // ---- numeric promotion ------------------------------------------------

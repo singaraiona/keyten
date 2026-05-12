@@ -25,6 +25,7 @@ pub enum TokenKind {
     Minus,
     Times,
     Div,
+    Bang, // `!` — monadic: til (range); dyadic: mod (reserved)
 
     Slash, // `/` adverb
     Backslash, // `\` adverb (reserved)
@@ -211,6 +212,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             b'-' => TokenKind::Minus,
             b'*' => TokenKind::Times,
             b'%' => TokenKind::Div,
+            b'!' => TokenKind::Bang,
             b'/' => TokenKind::Slash,
             b'\\' => TokenKind::Backslash,
             b':' => TokenKind::Colon,

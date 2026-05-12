@@ -84,6 +84,7 @@ fn eval_boxed<'a, 'r>(
                     op::OpId::Minus => op::dispatch_minus_async(x, y, ctx).await,
                     op::OpId::Times => op::dispatch_times_async(x, y, ctx).await,
                     op::OpId::Div => op::dispatch_div_async(x, y, ctx).await,
+                    op::OpId::Bang => op::dispatch_bang_async(x, y, ctx).await,
                 };
                 r.map_err(|e| EvalErr::Kernel { err: e, span: *span })
             }
@@ -92,6 +93,9 @@ fn eval_boxed<'a, 'r>(
                 match *verb {
                     op::OpId::Plus => Ok(x), // monadic + : identity in v1
                     op::OpId::Minus => negate_async(x, ctx)
+                        .await
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Bang => crate::kernels::til::til_async(x, ctx)
                         .await
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     _ => Err(EvalErr::Type {

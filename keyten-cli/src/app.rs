@@ -212,7 +212,8 @@ fn run_pipe(env: Rc<RefCell<Env>>) -> Result<()> {
 
 fn print_help() {
     let dim = Style::new().fg(Color::DarkGray);
-    println!("Built-in verbs:  +  -  *  %");
+    println!("Verbs:           +  -  *  %");
+    println!("Monadic verbs:   -x (negate)  !n (til: 0..n-1)");
     println!("Adverbs:         +/  (over)");
     println!("Atoms:           42  3.14  \"a\"  `sym  0N  0n  0W  0w");
     println!("Vectors:         1 2 3   1.5 2.5 3.5   `a`b `c");
@@ -220,6 +221,8 @@ fn print_help() {
     println!("Sequence:        a; b; c  (returns last)");
     println!(
         "{}",
-        dim.paint("Meta: :help :q  |  Tab completes names  |  Ctrl-C cancels a running op")
+        dim.paint(
+            "Try: +/!1000  |  Tab completes names  |  Ctrl-C cancels a running op  |  :q to quit"
+        )
     );
 }
