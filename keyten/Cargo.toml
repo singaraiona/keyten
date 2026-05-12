@@ -30,3 +30,9 @@ path = "examples/calc.rs"
 name = "bench_rc"
 path = "benches/bench_rc.rs"
 harness = false
+
+# Stage-2 microbench: parallel kernel speedup vs sequential baseline.
+[[bench]]
+name = "bench_parallel"
+path = "benches/bench_parallel.rs"
+harness = false
