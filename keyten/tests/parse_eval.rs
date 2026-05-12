@@ -395,6 +395,51 @@ fn scan_then_count() {
     assert_eq!(unsafe { r.atom::<i64>() }, 10);
 }
 
+// =======================================================================
+// _ verb: floor (monadic), drop (dyadic)
+// =======================================================================
+
+#[test]
+fn floor_atom() {
+    let r = run("_ 3.7");
+    assert_eq!(r.kind(), Kind::I64);
+    assert_eq!(unsafe { r.atom::<i64>() }, 3);
+}
+
+#[test]
+fn floor_negative() {
+    let r = run("_ -1.5");
+    assert_eq!(unsafe { r.atom::<i64>() }, -2);
+}
+
+#[test]
+fn floor_vec() {
+    let r = run("_ 1.5 2.9 3.0");
+    assert_eq!(r.kind(), Kind::I64);
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[1, 2, 3]);
+}
+
+#[test]
+fn drop_first_n() {
+    let r = run("2 _ 1 2 3 4 5");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[3, 4, 5]);
+}
+
+#[test]
+fn drop_last_n() {
+    // Parentheses are needed because the parser eats `-2` as `-(2)` if `-`
+    // sits at expression-start and the next thing is a number. K9
+    // convention writes `(- 2) _ x` or assigns the negative number first.
+    let r = run("(-2) _ 1 2 3 4 5");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[1, 2, 3]);
+}
+
+#[test]
+fn drop_more_than_len() {
+    let r = run("10 _ 1 2 3");
+    assert_eq!(r.len(), 0);
+}
+
 #[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).

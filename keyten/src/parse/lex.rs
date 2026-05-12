@@ -35,6 +35,7 @@ pub enum TokenKind {
     Tilde, // `~` — dyadic: match (deep equal); monadic: not
     Amp, // `&` — dyadic: min; monadic: where (reserved)
     Pipe, // `|` — dyadic: max; monadic: reverse (reserved)
+    Underscore, // `_` — monadic: floor; dyadic: drop
 
     Slash, // `/` adverb
     Backslash, // `\` adverb (reserved)
@@ -201,10 +202,12 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             continue;
         }
 
-        // Identifier.
-        if c.is_ascii_alphabetic() || c == b'_' {
+        // Identifier. K convention: letters and digits only — no underscore
+        // (which is the floor/drop verb). Identifiers must start with a
+        // letter.
+        if c.is_ascii_alphabetic() {
             let s_start = i;
-            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+            while i < bytes.len() && bytes[i].is_ascii_alphanumeric() {
                 i += 1;
             }
             let s = src[s_start..i].to_string();
@@ -231,6 +234,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             b'~' => TokenKind::Tilde,
             b'&' => TokenKind::Amp,
             b'|' => TokenKind::Pipe,
+            b'_' => TokenKind::Underscore,
             b'/' => TokenKind::Slash,
             b'\\' => TokenKind::Backslash,
             b':' => TokenKind::Colon,

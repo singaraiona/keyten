@@ -41,9 +41,11 @@ pub enum OpId {
     Amp = 12,
     /// `|` — dyadic max. Monadic: reverse (reserved).
     Pipe = 13,
+    /// `_` — monadic floor (f64 → i64); dyadic drop (`n_v` drops first n).
+    Underscore = 14,
 }
 
-pub const OP_COUNT: usize = 14;
+pub const OP_COUNT: usize = 15;
 
 // Function-pointer table of sync dispatch entries, indexed by `OpId as usize`.
 pub type DyadicFn = fn(RefObj, RefObj, &Ctx) -> Result<RefObj, KernelErr>;
@@ -63,6 +65,7 @@ pub static DYADIC: [DyadicFn; OP_COUNT] = [
     dispatch_tilde,
     dispatch_amp,
     dispatch_pipe,
+    dispatch_underscore,
 ];
 
 #[inline]
@@ -250,6 +253,26 @@ pub async fn dispatch_tilde_async(
     _ctx: &Ctx<'_>,
 ) -> Result<RefObj, KernelErr> {
     Ok(kernels::compare::match_objs(&x, &y))
+}
+
+// ---- `_` floor / drop --------------------------------------------------
+
+pub fn dispatch_underscore(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    block_on(dispatch_underscore_async(x, y, ctx))
+}
+
+pub async fn dispatch_underscore_async(
+    x: RefObj,
+    y: RefObj,
+    ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    // n must be an I64 atom.
+    if !x.is_atom() || x.kind() != Kind::I64 {
+        return Err(KernelErr::Type);
+    }
+    // SAFETY: kind verified.
+    let n = unsafe { x.atom::<i64>() };
+    unsafe { kernels::underscore::drop_async(n, y, ctx) }.await
 }
 
 // ---- min/max: &, | ----------------------------------------------------
