@@ -550,6 +550,29 @@ fn where_on_bool_vec() {
     assert_eq!(unsafe { r.as_slice::<i64>() }, &[2, 3, 4]);
 }
 
+// =======================================================================
+// Each adverb: '
+// =======================================================================
+
+#[test]
+fn each_negate() {
+    let r = run("-'1 2 3");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[-1, -2, -3]);
+}
+
+#[test]
+fn each_count_atoms_passthrough() {
+    // `#'5` on an atom = `#5` = 1.
+    let r = run("#'5");
+    assert_eq!(unsafe { r.atom::<i64>() }, 1);
+}
+
+#[test]
+fn each_sqrt_int_vec() {
+    let r = run("%'1 4 9 16");
+    assert_eq!(unsafe { r.as_slice::<f64>() }, &[1.0, 2.0, 3.0, 4.0]);
+}
+
 #[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).

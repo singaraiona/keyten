@@ -3,7 +3,7 @@
 //! Public surface: [`Env`], [`EvalErr`], [`eval`], [`eval_async`].
 
 mod env;
-mod tree;
+pub mod tree;
 
 pub use env::Env;
 pub use tree::{eval, eval_async, EvalErr};

@@ -52,11 +52,15 @@ impl AtomLit {
     }
 }
 
-/// Adverb identifier in source. Currently `Over` (`/`) is the only one v1 evals.
+/// Adverb identifier in source.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum AdvId {
+    /// `/` — over: reduce the input with the verb.
     Over,
-    Scan, // reserved
+    /// `\` — scan: running aggregate (same length as input).
+    Scan,
+    /// `'` — each: apply the monadic verb to each element.
+    Each,
 }
 
 /// Expressions in the source language.

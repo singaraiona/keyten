@@ -193,7 +193,10 @@ impl<'a> Parser<'a> {
         if let Some(t) = self.peek() {
             if verb_of(&t.kind).is_some() {
                 let next = self.peek_at(1).map(|x| &x.kind);
-                if matches!(next, Some(TokenKind::Slash) | Some(TokenKind::Backslash)) {
+                if matches!(
+                    next,
+                    Some(TokenKind::Slash) | Some(TokenKind::Backslash) | Some(TokenKind::Tick)
+                ) {
                     return self.parse_infix();
                 }
                 if let Some(verb) = verb_of(&t.kind) {
@@ -247,13 +250,17 @@ impl<'a> Parser<'a> {
             let verb = verb_of(&t.kind);
             if let Some(v) = verb {
                 if let Some(t1) = self.peek_at(1) {
-                    if matches!(t1.kind, TokenKind::Slash | TokenKind::Backslash) {
+                    if matches!(
+                        t1.kind,
+                        TokenKind::Slash | TokenKind::Backslash | TokenKind::Tick
+                    ) {
                         let start = t.span;
                         self.bump(); // verb
                         let adv_tok = self.bump().unwrap();
                         let adv = match adv_tok.kind {
                             TokenKind::Slash => AdvId::Over,
                             TokenKind::Backslash => AdvId::Scan,
+                            TokenKind::Tick => AdvId::Each,
                             _ => unreachable!(),
                         };
                         let arg = self.parse_expr()?;

@@ -40,8 +40,9 @@ pub enum TokenKind {
     Caret, // `^` — monadic: sort ascending; dyadic: cut/partition (reserved)
     Question, // `?` — monadic: unique; dyadic: find/random (reserved)
 
-    Slash, // `/` adverb
-    Backslash, // `\` adverb (reserved)
+    Slash, // `/` adverb (over)
+    Backslash, // `\` adverb (scan)
+    Tick, // `'` adverb (each)
 
     Colon,         // `:` assignment
     Semicolon,     // `;` statement separator (or list element separator inside parens)
@@ -243,6 +244,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             b'?' => TokenKind::Question,
             b'/' => TokenKind::Slash,
             b'\\' => TokenKind::Backslash,
+            b'\'' => TokenKind::Tick,
             b':' => TokenKind::Colon,
             b';' => TokenKind::Semicolon,
             b'(' => TokenKind::LParen,

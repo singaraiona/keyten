@@ -151,6 +151,9 @@ fn eval_boxed<'a, 'r>(
                     AdvId::Scan => adverb::scan_async(*verb, x, ctx)
                         .await
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    AdvId::Each => adverb::each_async(*verb, x, ctx)
+                        .await
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                 }
             }
             Expr::Seq { items, .. } => {
@@ -285,7 +288,7 @@ fn make_vec(kind: Kind, items: &[AtomLit], ctx: &Ctx) -> RefObj {
 }
 
 /// Monadic `-x`: compute 0 - x via the dispatcher to share the chunked path.
-async fn negate_async(x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
+pub async fn negate_async(x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
     let zero = match x.kind() {
         Kind::I64 => unsafe { alloc_atom(Kind::I64, 0i64) },
         Kind::F64 => unsafe { alloc_atom(Kind::F64, 0.0f64) },

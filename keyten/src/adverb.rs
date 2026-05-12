@@ -348,6 +348,51 @@ pub async fn over_async(op: OpId, x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, Ke
     }
 }
 
+/// Async each: `f'x` — apply monadic verb `f` to each element of `x`.
+///
+/// For uniform vectors of a v1-supported kind, the existing monadic verbs
+/// already operate element-wise, so `f'v` produces the same result as
+/// `f v`. The structural distinction matters when `f` is a user-defined
+/// lambda (Phase 1) or when `x` is a mixed list (Phase 4) — both deferred.
+/// For v1 this is therefore mostly identity-shaped, but having the AST
+/// node + dispatch in place means future phases plug in cleanly.
+pub async fn each_async(op: OpId, x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
+    if x.is_atom() {
+        return apply_monad(op, x, ctx).await;
+    }
+    let k = x.kind_raw().unsigned_abs();
+    match k {
+        // Uniform vectors of v1-supported kinds: same as monadic dispatch.
+        k if k == Kind::I64 as u8 || k == Kind::F64 as u8 || k == Kind::Bool as u8 => {
+            apply_monad(op, x, ctx).await
+        }
+        _ => Err(KernelErr::Type),
+    }
+}
+
+/// Internal monadic dispatch used by `each_async`. Mirrors the eval/tree.rs
+/// Monad arm so each composes with all single-arg verbs uniformly.
+async fn apply_monad(op: OpId, x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
+    use crate::kernels::{monad, setops, til, underscore};
+    match op {
+        OpId::Plus => Ok(x),
+        OpId::Minus => crate::eval::tree::negate_async(x, ctx).await,
+        OpId::Bang => til::til_async(x, ctx).await,
+        OpId::At => monad::type_of(x),
+        OpId::Hash => monad::count(x),
+        OpId::Comma => monad::enlist(x, ctx),
+        OpId::Tilde => monad::not(x, ctx),
+        OpId::Underscore => unsafe { underscore::floor_async(x, ctx) }.await,
+        OpId::Dollar => monad::string_of(x, ctx),
+        OpId::Caret => setops::sort_asc(x, ctx),
+        OpId::Question => setops::unique(x, ctx),
+        OpId::Div => setops::sqrt(x, ctx),
+        OpId::Pipe => setops::reverse(x, ctx),
+        OpId::Amp => setops::where_indices(x, ctx),
+        _ => Err(KernelErr::Type),
+    }
+}
+
 /// Async scan: `op\x` — running aggregate, same length as `x`.
 pub async fn scan_async(op: OpId, x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
     if x.is_atom() {
