@@ -29,6 +29,8 @@ pub mod kernels;
 pub mod adverb;
 pub mod op;
 
+pub mod parallel;
+
 pub mod ast;
 pub mod parse;
 pub mod eval;
