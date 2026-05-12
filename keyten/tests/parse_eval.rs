@@ -222,6 +222,50 @@ fn enlist_comma_float_atom() {
     assert_eq!(s, &[3.5]);
 }
 
+#[test]
+fn comma_concat_two_int_vectors() {
+    let r = run("1 2 3 , 10 20");
+    assert!(r.is_vec());
+    assert_eq!(r.kind(), Kind::I64);
+    let s = unsafe { r.as_slice::<i64>() };
+    assert_eq!(s, &[1, 2, 3, 10, 20]);
+}
+
+#[test]
+fn comma_concat_atom_and_vector() {
+    let r = run("99 , 1 2 3");
+    let s = unsafe { r.as_slice::<i64>() };
+    assert_eq!(s, &[99, 1, 2, 3]);
+}
+
+#[test]
+fn hash_take_exact_length() {
+    let r = run("3 # 10 20 30");
+    let s = unsafe { r.as_slice::<i64>() };
+    assert_eq!(s, &[10, 20, 30]);
+}
+
+#[test]
+fn hash_take_truncates() {
+    let r = run("3 # 10 20 30 40 50");
+    let s = unsafe { r.as_slice::<i64>() };
+    assert_eq!(s, &[10, 20, 30]);
+}
+
+#[test]
+fn hash_take_cycles() {
+    let r = run("7 # 1 2 3");
+    let s = unsafe { r.as_slice::<i64>() };
+    assert_eq!(s, &[1, 2, 3, 1, 2, 3, 1]);
+}
+
+#[test]
+fn hash_take_from_til() {
+    let r = run("3 # !100");
+    let s = unsafe { r.as_slice::<i64>() };
+    assert_eq!(s, &[0, 1, 2]);
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn eval_async_runs_under_tokio() {
     let expr = parse("+/ 1 2 3 4 5").unwrap();

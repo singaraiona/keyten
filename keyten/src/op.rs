@@ -152,30 +152,54 @@ pub async fn dispatch_at_async(
     Err(KernelErr::Type)
 }
 
-/// `n # y` — take. Reserved.
-pub fn dispatch_hash(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
-    Err(KernelErr::Type)
+/// `n # y` — take. `n` must be an I64 atom; `y` must be a same-kind atom
+/// or vector of a non-composite kind.
+pub fn dispatch_hash(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    block_on(dispatch_hash_async(x, y, ctx))
 }
 
 pub async fn dispatch_hash_async(
-    _x: RefObj,
-    _y: RefObj,
-    _ctx: &Ctx<'_>,
+    x: RefObj,
+    y: RefObj,
+    ctx: &Ctx<'_>,
 ) -> Result<RefObj, KernelErr> {
-    Err(KernelErr::Type)
+    // n must be an I64 atom.
+    if !x.is_atom() || x.kind() != Kind::I64 {
+        return Err(KernelErr::Type);
+    }
+    // SAFETY: kind verified above.
+    let n = unsafe { x.atom::<i64>() };
+    // y must be non-composite.
+    let yk = y.kind();
+    if matches!(yk, Kind::List | Kind::Dict | Kind::Table) {
+        return Err(KernelErr::Type);
+    }
+    // SAFETY: y's kind is non-composite vector or atom (just verified).
+    unsafe { kernels::dyad::take_async(n, y, ctx) }.await
 }
 
-/// `x , y` — concatenate. Reserved for now.
-pub fn dispatch_comma(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
-    Err(KernelErr::Type)
+/// `x , y` — concatenate. Same-kind only in v1; mixed-kind promotion is
+/// future work.
+pub fn dispatch_comma(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    block_on(dispatch_comma_async(x, y, ctx))
 }
 
 pub async fn dispatch_comma_async(
-    _x: RefObj,
-    _y: RefObj,
-    _ctx: &Ctx<'_>,
+    x: RefObj,
+    y: RefObj,
+    ctx: &Ctx<'_>,
 ) -> Result<RefObj, KernelErr> {
-    Err(KernelErr::Type)
+    let xk = x.kind();
+    let yk = y.kind();
+    if xk != yk {
+        // TODO: heterogeneous concat builds a mixed list. Defer.
+        return Err(KernelErr::Type);
+    }
+    if matches!(xk, Kind::List | Kind::Dict | Kind::Table) {
+        return Err(KernelErr::Type);
+    }
+    // SAFETY: same non-composite kind on both sides.
+    unsafe { kernels::dyad::concat_same_kind_async(x, y, ctx) }.await
 }
 
 // ---- numeric promotion ------------------------------------------------

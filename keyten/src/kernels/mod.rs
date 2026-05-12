@@ -7,6 +7,7 @@ pub mod times;
 pub mod div;
 pub mod til;
 pub mod monad;
+pub mod dyad;
 
 // Per-kind streaming chunk defaults. Sized so x_chunk + y_chunk + out_chunk
 // fit comfortably in L2 cache (~512 KiB working set across the three buffers).
