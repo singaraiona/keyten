@@ -797,6 +797,39 @@ fn lambda_recursion_fibonacci() {
     assert_eq!(unsafe { r.atom::<i64>() }, 55);
 }
 
+// =======================================================================
+// List literals — uniform promotion + mixed lists
+// =======================================================================
+
+#[test]
+fn list_uniform_int_promotes_to_vector() {
+    // `(1;2;3)` with all-int atoms → I64 vector.
+    let r = run("(1;2;3)");
+    assert_eq!(r.kind(), Kind::I64);
+    assert!(r.is_vec());
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[1, 2, 3]);
+}
+
+#[test]
+fn list_uniform_float_promotes() {
+    let r = run("(1.0;2.0;3.0)");
+    assert_eq!(r.kind(), Kind::F64);
+    assert_eq!(unsafe { r.as_slice::<f64>() }, &[1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn list_mixed_kinds_stays_list() {
+    let r = run("(1;2.0)");
+    assert_eq!(r.kind(), Kind::List);
+}
+
+#[test]
+fn list_can_be_passed_through_count() {
+    // (1;2;3) becomes an I64 vector of length 3.
+    let r = run("#(1;2;3)");
+    assert_eq!(unsafe { r.atom::<i64>() }, 3);
+}
+
 #[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).

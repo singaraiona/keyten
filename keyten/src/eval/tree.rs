@@ -54,18 +54,63 @@ fn eval_boxed<'a, 'r>(
             Expr::AtomLit { lit, .. } => Ok(make_atom(*lit)),
             Expr::VecLit { kind, items, .. } => Ok(make_vec(*kind, items, ctx)),
             Expr::ListLit { items, span } => {
-                // v1 has no generic-list semantics in kernels; we materialise a
-                // single-statement list as Seq-equivalent (evaluate each, return
-                // last). Composite list values arrive in v2.
+                // `(a;b;c)` — eval each element, then build either a
+                // uniform vector (if all are same-kind atoms of a vec-able
+                // kind) or a mixed list.
                 let _ = span;
                 if items.is_empty() {
                     return Err(EvalErr::Empty);
                 }
-                let mut last: Option<RefObj> = None;
+                let mut vals: Vec<RefObj> = Vec::with_capacity(items.len());
                 for it in items {
-                    last = Some(eval_boxed(it, env, ctx).await?);
+                    vals.push(eval_boxed(it, env, ctx).await?);
                 }
-                Ok(last.unwrap())
+                // Try uniform promotion: all same-kind atoms of a
+                // vec-friendly kind.
+                let uniform = if vals.iter().all(|v| v.is_atom()) {
+                    let k0 = vals[0].kind();
+                    if vals.iter().all(|v| v.kind() == k0)
+                        && matches!(
+                            k0,
+                            Kind::I64
+                                | Kind::F64
+                                | Kind::Bool
+                                | Kind::Char
+                                | Kind::Sym
+                                | Kind::U8
+                        )
+                    {
+                        Some(k0)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if let Some(k) = uniform {
+                    // Build a uniform vector of kind k.
+                    let n = vals.len() as i64;
+                    let elem = k.elem_size();
+                    let mut out = unsafe { crate::alloc::alloc_vec(ctx, k.vec(), n, elem) };
+                    unsafe {
+                        let dst = (out.as_ptr() as *mut u8).add(16);
+                        for (i, v) in vals.iter().enumerate() {
+                            let src = (v.as_ptr() as *const u8).add(8);
+                            core::ptr::copy_nonoverlapping(src, dst.add(i * elem), elem);
+                        }
+                    }
+                    return Ok(out);
+                }
+                // Heterogeneous → Kind::List of RefObjs.
+                let n = vals.len() as i64;
+                let mut out = unsafe { crate::alloc::alloc_vec(ctx, Kind::List.vec(), n, 8) };
+                unsafe {
+                    let slots = out.as_mut_slice::<RefObj>().as_mut_ptr();
+                    for (i, v) in vals.into_iter().enumerate() {
+                        core::ptr::write(slots.add(i), v);
+                    }
+                }
+                Ok(out)
             }
             Expr::Name { sym, span } => env.lookup(*sym).ok_or(EvalErr::UndefinedName {
                 name: *sym,
