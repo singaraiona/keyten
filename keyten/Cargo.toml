@@ -11,6 +11,11 @@ path = "src/lib.rs"
 [dependencies]
 libc = "0.2"
 tokio = { version = "1", default-features = false, features = ["sync"] }
+# Forward-looking for v2 stage 2 (parallel kernel pool). No consumers yet;
+# pinning these to a known release here so subsequent stages don't mix dep
+# changes with logic changes.
+crossbeam-utils = "0.8"
+core_affinity = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["rt", "macros", "time", "sync"] }
