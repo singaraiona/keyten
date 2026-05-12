@@ -10,7 +10,7 @@
 //!    only suspension point is `YieldNow` which terminates after one re-poll.
 
 use crate::alloc::{alloc_atom, alloc_vec_f64, alloc_vec_i64};
-use crate::chunk::{drive_async, ChunkStep};
+use crate::chunk::{drive_async, drive_sync, ChunkStep};
 use crate::ctx::{Ctx, KernelErr};
 use crate::exec::block_on;
 use crate::kernels::{F64_CHUNK, I64_CHUNK};
@@ -18,6 +18,7 @@ use crate::kind::Kind;
 use crate::madvise::madvise_dontneed_slice;
 use crate::nulls::NULL_I64;
 use crate::obj::{attr_flags, RefObj};
+use crate::parallel;
 use crate::simd;
 
 // =======================================================================
@@ -198,9 +199,20 @@ pub async unsafe fn plus_i64_vec_vec_async(x: RefObj, y: RefObj, ctx: &Ctx<'_>) 
     let mut out = alloc_vec_i64(ctx, xs.len() as i64);
     let chunk = if ctx.chunk_elems != 0 { ctx.chunk_elems } else { I64_CHUNK };
     let has_nulls = (x.attr() | y.attr()) & attr_flags::HAS_NULLS != 0;
+    let go_parallel = !has_nulls
+        && ctx.runtime.parallel_enabled()
+        && xs.len() >= parallel::PARALLEL_THRESHOLD;
     {
         let os = out.as_mut_slice::<i64>();
-        if !has_nulls {
+        if go_parallel {
+            // Each worker constructs its own AddI64VecVec over the sub-range.
+            // drive_sync (not drive_async) — the worker runs on a dedicated
+            // OS thread under thread::scope, with no tokio task to yield to.
+            parallel::parallel_for_each_mut(os, ctx, |range, my_os| {
+                let mut k = AddI64VecVec::new(&xs[range.clone()], &ys[range], my_os, chunk);
+                drive_sync(&mut k, ctx)
+            })?;
+        } else if !has_nulls {
             let mut k = AddI64VecVec::new(xs, ys, os, chunk);
             drive_async(&mut k, ctx).await?;
         } else {
