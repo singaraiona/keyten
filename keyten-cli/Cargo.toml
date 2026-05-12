@@ -19,6 +19,7 @@ reedline = { version = "0.46", default-features = false }
 nu-ansi-term = "0.50"
 dirs = "5"
 anyhow = "1"
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["rt", "macros", "time"] }

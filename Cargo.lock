@@ -295,6 +295,7 @@ dependencies = [
  "anyhow",
  "dirs",
  "keyten",
+ "libc",
  "nu-ansi-term",
  "reedline",
  "tokio",
