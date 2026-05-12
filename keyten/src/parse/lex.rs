@@ -49,6 +49,8 @@ pub enum TokenKind {
     Semicolon,     // `;` statement separator (or list element separator inside parens)
     LParen,
     RParen,
+    LBracket,      // `[` — bracket-args (conditional, future indexing, lambda params)
+    RBracket,      // `]`
 }
 
 #[derive(Debug, Clone)]
@@ -251,6 +253,8 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             b';' => TokenKind::Semicolon,
             b'(' => TokenKind::LParen,
             b')' => TokenKind::RParen,
+            b'[' => TokenKind::LBracket,
+            b']' => TokenKind::RBracket,
             other => {
                 return Err(ParseErr {
                     msg: format!("unexpected character `{}`", other as char),

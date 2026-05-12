@@ -110,6 +110,17 @@ pub enum Expr {
     /// Multiple top-level statements separated by `;`. Returns the last
     /// statement's value.
     Seq { items: Vec<Expr>, span: Span },
+    /// `$[c;t;e]` — conditional. Eval `c`; if non-zero/true, eval `t`; else
+    /// eval `e`. K9 also has the cond ladder form `$[c1;t1;c2;t2;...;e]`
+    /// where odd positions are conditions and even positions are branches,
+    /// with the final unpaired element being the default else. v1 supports
+    /// the 3-arg form only; the ladder form is a parser extension.
+    Cond {
+        cond: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Box<Expr>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -124,6 +135,7 @@ impl Expr {
             Expr::Monad { span, .. } => *span,
             Expr::Adverb { span, .. } => *span,
             Expr::Seq { span, .. } => *span,
+            Expr::Cond { span, .. } => *span,
         }
     }
 }

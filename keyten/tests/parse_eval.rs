@@ -670,6 +670,49 @@ fn dot_dict_returns_values() {
 }
 
 #[test]
+fn flip_dict_to_table() {
+    let r = run("+1 2 3 ! 10 20 30");
+    assert_eq!(r.kind(), Kind::Table);
+}
+
+// =======================================================================
+// Phase 5: Conditional `$[c;t;e]`
+// =======================================================================
+
+#[test]
+fn cond_true_branch() {
+    let r = run("$[1; 100; 200]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 100);
+}
+
+#[test]
+fn cond_false_branch() {
+    let r = run("$[0; 100; 200]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 200);
+}
+
+#[test]
+fn cond_with_comparison() {
+    let r = run("$[1 < 2; 99; 33]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 99);
+}
+
+#[test]
+fn cond_floats_or_ints() {
+    let r = run("$[0.0; 1; 2]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 2);
+    let r = run("$[3.14; 1; 2]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 1);
+}
+
+#[test]
+fn cond_branches_can_be_complex() {
+    // Conditional choosing between two computed expressions.
+    let r = run("$[1; +/!100; 0]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 4950);
+}
+
+#[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).
     // For !N, +\!N[i] = i*(i+1)/2.

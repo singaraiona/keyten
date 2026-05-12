@@ -138,6 +138,27 @@ pub fn dict_lookup(d: &RefObj, key: &RefObj) -> Result<RefObj, KernelErr> {
     }
 }
 
+/// `+dict` — flip a dict into a table. In v1 this is a kind-tag change
+/// with no payload reshape, since our simple dicts already store
+/// `[keys, values]` in the layout a table expects. Real K9 tables
+/// require each value column to be a vector and all columns to have
+/// the same length — once mixed-list values land, this kernel will
+/// validate that invariant.
+pub fn flip_dict_to_table(d: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    if d.kind() != Kind::Dict {
+        return Err(KernelErr::Type);
+    }
+    let keys = dict_keys(&d)?;
+    let values = dict_values(&d)?;
+    let mut out = unsafe { alloc_vec(ctx, Kind::Table.vec(), 2, 8) };
+    unsafe {
+        let slots = out.as_mut_slice::<RefObj>().as_mut_ptr();
+        core::ptr::write(slots, keys);
+        core::ptr::write(slots.add(1), values);
+    }
+    Ok(out)
+}
+
 fn null_of(kind: Kind) -> Result<RefObj, KernelErr> {
     match kind {
         Kind::I64 => Ok(unsafe { crate::alloc::alloc_atom(Kind::I64, crate::nulls::NULL_I64) }),

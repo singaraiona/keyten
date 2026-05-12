@@ -191,6 +191,16 @@ impl<'a> Parser<'a> {
     /// Monadic verb before any primary. Bows out if the next token is an
     /// adverb (`/`, `\`) — that form is `V/x`, parsed in `parse_primary`.
     fn parse_prefix(&mut self) -> Result<Expr, ParseErr> {
+        // Conditional `$[c;t;e]` must be detected BEFORE the monadic-verb
+        // dispatch — otherwise `$` is eaten as the string-convert verb
+        // and `[` becomes a parse error.
+        if let Some(t) = self.peek() {
+            if matches!(t.kind, TokenKind::Dollar)
+                && matches!(self.peek_at(1).map(|x| &x.kind), Some(TokenKind::LBracket))
+            {
+                return self.parse_primary();
+            }
+        }
         if let Some(t) = self.peek() {
             if verb_of(&t.kind).is_some() {
                 let next = self.peek_at(1).map(|x| &x.kind);
@@ -284,6 +294,44 @@ impl<'a> Parser<'a> {
                             span,
                         });
                     }
+                }
+            }
+        }
+
+        // Conditional `$[c;t;e]`. The `$` is normally the string-convert
+        // verb (monadic) or parse (dyadic, reserved), but a `[` immediately
+        // after means "this is a cond form, not the verb."
+        if let Some(t) = self.peek() {
+            if matches!(t.kind, TokenKind::Dollar) {
+                if matches!(
+                    self.peek_at(1).map(|x| &x.kind),
+                    Some(TokenKind::LBracket)
+                ) {
+                    let start = t.span;
+                    self.bump(); // $
+                    self.bump(); // [
+                    let cond = self.parse_expr()?;
+                    if !self.eat(&TokenKind::Semicolon) {
+                        let span = self.span_end();
+                        return self.err("expected `;` after condition in `$[..]`", span);
+                    }
+                    let then_branch = self.parse_expr()?;
+                    if !self.eat(&TokenKind::Semicolon) {
+                        let span = self.span_end();
+                        return self.err("expected `;` after then-branch in `$[..]`", span);
+                    }
+                    let else_branch = self.parse_expr()?;
+                    if !self.eat(&TokenKind::RBracket) {
+                        let span = self.span_end();
+                        return self.err("expected `]` after else-branch in `$[..]`", span);
+                    }
+                    let span = Span::merge(start, self.span_end());
+                    return Ok(Expr::Cond {
+                        cond: Box::new(cond),
+                        then_branch: Box::new(then_branch),
+                        else_branch: Box::new(else_branch),
+                        span,
+                    });
                 }
             }
         }

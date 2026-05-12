@@ -105,7 +105,17 @@ fn eval_boxed<'a, 'r>(
             Expr::Monad { verb, arg, span } => {
                 let x = eval_boxed(arg, env, ctx).await?;
                 match *verb {
-                    op::OpId::Plus => Ok(x), // monadic + : identity in v1
+                    op::OpId::Plus => {
+                        // K9: `+dict` flips dict → table. Other monadic `+`
+                        // forms (transpose of nested list) need mixed-list
+                        // support — defer.
+                        if x.kind() == Kind::Dict {
+                            crate::kernels::dict::flip_dict_to_table(x, ctx)
+                                .map_err(|e| EvalErr::Kernel { err: e, span: *span })
+                        } else {
+                            Ok(x)
+                        }
+                    }
                     op::OpId::Minus => negate_async(x, ctx)
                         .await
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
@@ -192,8 +202,50 @@ fn eval_boxed<'a, 'r>(
                 }
                 Ok(last.unwrap())
             }
+            Expr::Cond {
+                cond,
+                then_branch,
+                else_branch,
+                span: _,
+            } => {
+                let c = eval_boxed(cond, env, ctx).await?;
+                let truthy = cond_is_truthy(&c);
+                if truthy {
+                    eval_boxed(then_branch, env, ctx).await
+                } else {
+                    eval_boxed(else_branch, env, ctx).await
+                }
+            }
         }
     })
+}
+
+/// K convention for the test in `$[c;t;e]`: non-zero / non-empty is true.
+/// For atoms: numeric non-zero, bool 1b, non-null sym → true.
+/// For vectors: K9 typically takes the first element; we follow that.
+fn cond_is_truthy(c: &RefObj) -> bool {
+    let k = c.kind();
+    if c.is_atom() {
+        match k {
+            Kind::Bool | Kind::U8 | Kind::Char => (unsafe { c.atom::<u8>() }) != 0,
+            Kind::I64 => (unsafe { c.atom::<i64>() }) != 0,
+            Kind::F64 => (unsafe { c.atom::<f64>() }) != 0.0,
+            Kind::Sym => (unsafe { c.atom::<crate::sym::Sym>() }).0 != 0,
+            _ => true,
+        }
+    } else {
+        if c.len() == 0 {
+            return false;
+        }
+        unsafe {
+            match k {
+                Kind::Bool | Kind::U8 | Kind::Char => c.as_slice::<u8>()[0] != 0,
+                Kind::I64 => c.as_slice::<i64>()[0] != 0,
+                Kind::F64 => c.as_slice::<f64>()[0] != 0.0,
+                _ => true,
+            }
+        }
+    }
 }
 
 fn make_atom(lit: AtomLit) -> RefObj {
