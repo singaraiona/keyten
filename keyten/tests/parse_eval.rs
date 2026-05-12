@@ -763,6 +763,41 @@ fn lambda_with_conditional() {
 }
 
 #[test]
+fn lambda_implicit_xy_dyadic() {
+    // `{x+y}` should be dyadic by K convention (uses x and y → arity 2).
+    let r = run("{x+y}[3;4]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 7);
+}
+
+#[test]
+fn lambda_implicit_z_triadic() {
+    // `{x+y*z}` should be triadic by K convention.
+    let r = run("{x+y*z}[1;2;3]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 7); // 1 + (2 * 3)
+}
+
+#[test]
+fn lambda_implicit_only_y_still_dyadic() {
+    // `{y}` should still take 2 args (K: arity = max position seen).
+    let r = run("{y}[100;42]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 42);
+}
+
+#[test]
+fn lambda_recursion_factorial() {
+    // Classic recursion test — lambda finds itself via the global name
+    // lookup (which works because `fac:` binds it before any call).
+    let r = run("fac: {$[x<2; 1; x*fac[x-1]]}; fac[5]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 120);
+}
+
+#[test]
+fn lambda_recursion_fibonacci() {
+    let r = run("fib: {$[x<2; x; fib[x-1] + fib[x-2]]}; fib[10]");
+    assert_eq!(unsafe { r.atom::<i64>() }, 55);
+}
+
+#[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).
     // For !N, +\!N[i] = i*(i+1)/2.

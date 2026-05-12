@@ -20,7 +20,79 @@
 //! whitespace (no commas). If types differ, we promote (int → float) up to F64.
 
 use crate::ast::{AdvId, AtomLit, Expr, Span};
+use crate::sym::{intern as intern_sym, Sym};
 use std::sync::Arc;
+
+/// K convention for `{body}` (no explicit param list): arity is the
+/// maximum position of any free `x`/`y`/`z` referenced in the body
+/// (positions 1, 2, 3 respectively). The synthesised param list is then
+/// `[x]`, `[x;y]`, or `[x;y;z]`. A body that references none is nullary.
+fn infer_implicit_params(body: &Expr) -> Vec<Sym> {
+    let x = intern_sym("x").unwrap();
+    let y = intern_sym("y").unwrap();
+    let z = intern_sym("z").unwrap();
+    let mut seen = [false; 3]; // x, y, z
+
+    fn walk(e: &Expr, seen: &mut [bool; 3], x: Sym, y: Sym, z: Sym) {
+        match e {
+            Expr::Name { sym, .. } => {
+                if *sym == x {
+                    seen[0] = true;
+                } else if *sym == y {
+                    seen[1] = true;
+                } else if *sym == z {
+                    seen[2] = true;
+                }
+            }
+            Expr::Assign { value, .. } => walk(value, seen, x, y, z),
+            Expr::Dyad { lhs, rhs, .. } => {
+                walk(lhs, seen, x, y, z);
+                walk(rhs, seen, x, y, z);
+            }
+            Expr::Monad { arg, .. } => walk(arg, seen, x, y, z),
+            Expr::Adverb { arg, .. } => walk(arg, seen, x, y, z),
+            Expr::Seq { items, .. } | Expr::ListLit { items, .. } => {
+                for it in items {
+                    walk(it, seen, x, y, z);
+                }
+            }
+            Expr::Cond {
+                cond,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                walk(cond, seen, x, y, z);
+                walk(then_branch, seen, x, y, z);
+                walk(else_branch, seen, x, y, z);
+            }
+            Expr::Apply { func, args, .. } => {
+                walk(func, seen, x, y, z);
+                for a in args {
+                    walk(a, seen, x, y, z);
+                }
+            }
+            // Lambdas inside lambdas shadow x/y/z, so don't recurse for
+            // free variables — they're bound there.
+            Expr::Lambda { .. } => {}
+            Expr::AtomLit { .. } | Expr::VecLit { .. } => {}
+        }
+    }
+    walk(body, &mut seen, x, y, z);
+
+    // K convention: arity = max position seen + 1 (or 0 if none seen).
+    let max_pos = if seen[2] {
+        3
+    } else if seen[1] {
+        2
+    } else if seen[0] {
+        1
+    } else {
+        0
+    };
+    let names = ["x", "y", "z"];
+    (0..max_pos).map(|i| intern_sym(names[i]).unwrap()).collect()
+}
 use crate::kind::Kind;
 use crate::op::OpId;
 use crate::parse::lex::{Token, TokenKind};
@@ -413,11 +485,25 @@ impl<'a> Parser<'a> {
                         }
                         ps
                     } else {
-                        // Implicit-x: assume the body references `x`.
-                        // Future v1.x: scan body for free x/y/z to compute
-                        // arity (K convention). For v1.1 minimum, default
-                        // to single-arg `x`.
-                        vec![intern("x").unwrap()]
+                        // K convention: arity is determined by the highest
+                        // free-positional name referenced in the body.
+                        // `{y}` → arity 2 (params x, y); `{x+y*z}` → arity 3.
+                        // We pre-parse the body, walk it for free `x`/`y`/`z`
+                        // references, and synthesise the param list.
+                        // We need to parse the body first, then walk; do the
+                        // body parse here, then continue.
+                        let body = self.parse_expr()?;
+                        if !self.eat(&TokenKind::RBrace) {
+                            let span = self.span_end();
+                            return self.err("expected `}` to close lambda body", span);
+                        }
+                        let params = infer_implicit_params(&body);
+                        let span = Span::merge(lbrace, self.span_end());
+                        return self.maybe_apply(Expr::Lambda {
+                            params,
+                            body: Arc::new(body),
+                            span,
+                        });
                     };
                 let body = self.parse_expr()?;
                 if !self.eat(&TokenKind::RBrace) {
