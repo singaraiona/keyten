@@ -1,13 +1,14 @@
 //! K-style system commands: lines beginning with `\`.
 //!
-//! Supported in v1:
+//! Supported:
 //!
-//! | Command       | Effect                                              |
-//! |---------------|-----------------------------------------------------|
-//! | `\t expr`     | evaluate `expr`, print value + elapsed milliseconds |
-//! | `\v`          | list bound variable names                           |
-//! | `\h` / `\?`   | help                                                |
-//! | `\\`          | quit                                                |
+//! | Command          | Effect                                              |
+//! |------------------|-----------------------------------------------------|
+//! | `\t expr`        | evaluate `expr`, print value + elapsed milliseconds |
+//! | `\v`             | list bound variable names                           |
+//! | `\p [0|1]`       | show or set parallel kernel execution               |
+//! | `\h` / `\?`      | help                                                |
+//! | `\\`             | quit                                                |
 //!
 //! Anything else is an unknown command.
 
@@ -16,7 +17,7 @@ use std::time::Instant;
 use anyhow::Result;
 use nu_ansi_term::{Color, Style};
 
-use keyten::{Env, Sym};
+use keyten::{Env, Sym, RUNTIME};
 
 use crate::eval_runner::{run_one, Outcome};
 use crate::format::format;
@@ -48,6 +49,7 @@ pub fn dispatch(line: &str, env: &mut Env) -> Result<SysOutcome> {
     match cmd {
         "t" => cmd_time(args, env)?,
         "v" => cmd_vars(env),
+        "p" => cmd_parallel(args),
         "h" | "?" => cmd_help(),
         _ => println!(
             "{}",
@@ -57,6 +59,38 @@ pub fn dispatch(line: &str, env: &mut Env) -> Result<SysOutcome> {
         ),
     }
     Ok(SysOutcome::Continue)
+}
+
+fn cmd_parallel(arg: &str) {
+    let ok = Style::new().fg(Color::Green).bold();
+    let dim = Style::new().dimmed();
+    if arg.is_empty() {
+        let state = if RUNTIME.parallel_enabled() { "on" } else { "off" };
+        let nw = RUNTIME.worker_count();
+        println!(
+            "parallel: {}   workers: {}   {}",
+            ok.paint(state),
+            ok.paint(nw.to_string()),
+            dim.paint("(`\\p 1` to enable, `\\p 0` to disable)"),
+        );
+        return;
+    }
+    match arg.trim() {
+        "1" | "on" | "true" => {
+            RUNTIME.set_parallel(true);
+            println!("parallel: {}   workers: {}", ok.paint("on"), ok.paint(RUNTIME.worker_count().to_string()));
+        }
+        "0" | "off" | "false" => {
+            RUNTIME.set_parallel(false);
+            println!("parallel: {}", ok.paint("off"));
+        }
+        other => println!(
+            "{}",
+            Style::new()
+                .fg(Color::Red)
+                .paint(format!("\\p: unknown argument {other:?}; expected 0|1|on|off"))
+        ),
+    }
 }
 
 fn cmd_time(expr: &str, env: &mut Env) -> Result<()> {
@@ -116,6 +150,7 @@ fn cmd_help() {
     println!("System commands (start with `\\`):");
     println!("  \\t expr    time the evaluation of expr (prints value + elapsed)");
     println!("  \\v         list bound variable names");
+    println!("  \\p [0|1]   show or toggle parallel kernel execution");
     println!("  \\h, \\?     this help");
     println!("  \\\\         quit");
     println!();

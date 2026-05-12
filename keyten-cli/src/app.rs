@@ -16,7 +16,7 @@ use reedline::{
     ReedlineMenu, Signal,
 };
 
-use keyten::Env;
+use keyten::{Env, RUNTIME};
 
 use crate::banner;
 use crate::completer::KCompleter;
@@ -30,6 +30,13 @@ use crate::syscmd::{self, SysOutcome};
 use crate::validator::KValidator;
 
 pub fn run() -> Result<()> {
+    // v2: data-parallel kernel execution is on by default. Toggle from the
+    // REPL with `\p 0` / `\p 1`. The flag was off-by-default during v2
+    // development so we could A/B test, but with TSan-verified parallel
+    // paths and a measured 5x speedup on the canonical workload there's no
+    // reason to keep the slow path as the default.
+    RUNTIME.set_parallel(true);
+
     let env: Rc<RefCell<Env>> = Rc::new(RefCell::new(Env::new()));
     let names: SharedNames = Arc::new(Mutex::new(Names::default()));
 

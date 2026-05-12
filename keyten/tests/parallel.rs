@@ -162,6 +162,46 @@ fn plus_over_large_parallel_matches_sequential() {
 }
 
 // =======================================================================
+// til: parallel produces the same monotonic sequence as sequential
+// =======================================================================
+
+#[test]
+fn til_parallel_matches_sequential() {
+    use keyten::kernels::til::til_async;
+    use keyten::alloc::alloc_atom;
+    use keyten::Kind;
+
+    let _guard = SERIAL.lock().unwrap();
+    let prev = RUNTIME.parallel_enabled();
+
+    fn run(n: i64) -> Vec<i64> {
+        let n_atom = unsafe { alloc_atom(Kind::I64, n) };
+        let out = block_on(async {
+            unsafe { til_async(n_atom, &Ctx::quiet()).await.expect("til succeeds") }
+        });
+        let v = unsafe { out.as_slice::<i64>() }.to_vec();
+        drop(out);
+        v
+    }
+
+    let n: i64 = 1_000_000;
+
+    RUNTIME.set_parallel(false);
+    let seq = run(n);
+    RUNTIME.set_parallel(true);
+    let par = run(n);
+
+    RUNTIME.set_parallel(prev);
+
+    // Every position must be its own index.
+    assert_eq!(seq.len(), n as usize);
+    for i in 0..seq.len() {
+        assert_eq!(seq[i], i as i64, "sequential til wrong at {i}");
+    }
+    assert_eq!(seq, par, "parallel til diverged from sequential");
+}
+
+// =======================================================================
 // Cancellation under parallel execution
 // =======================================================================
 
