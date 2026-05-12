@@ -156,16 +156,23 @@ pub fn dispatch_div(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr
     block_on(dispatch_div_async(x, y, ctx))
 }
 
-/// `x ! y` — modulo. Not implemented in v1; returns a type error.
-pub fn dispatch_bang(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
-    Err(KernelErr::Type)
+/// `keys ! values` — when both operands are vectors of the same length,
+/// constructs a dict. Modulo (the other K9 meaning of dyadic `!`) is
+/// reserved.
+pub fn dispatch_bang(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    block_on(dispatch_bang_async(x, y, ctx))
 }
 
 pub async fn dispatch_bang_async(
-    _x: RefObj,
-    _y: RefObj,
-    _ctx: &Ctx<'_>,
+    x: RefObj,
+    y: RefObj,
+    ctx: &Ctx<'_>,
 ) -> Result<RefObj, KernelErr> {
+    // Dict construction: both vectors → dict.
+    if !x.is_atom() && !y.is_atom() {
+        return kernels::dict::make_dict(x, y, ctx);
+    }
+    // Modulo / other forms: reserved.
     Err(KernelErr::Type)
 }
 
