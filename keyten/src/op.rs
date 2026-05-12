@@ -45,9 +45,13 @@ pub enum OpId {
     Underscore = 14,
     /// `$` — monadic: atom → char vector (string convert); dyadic: parse-with-type (reserved).
     Dollar = 15,
+    /// `^` — monadic: sort ascending. Dyadic: cut/partition (reserved).
+    Caret = 16,
+    /// `?` — monadic: unique (distinct values in first-seen order). Dyadic: find / random (reserved).
+    Question = 17,
 }
 
-pub const OP_COUNT: usize = 16;
+pub const OP_COUNT: usize = 18;
 
 // Function-pointer table of sync dispatch entries, indexed by `OpId as usize`.
 pub type DyadicFn = fn(RefObj, RefObj, &Ctx) -> Result<RefObj, KernelErr>;
@@ -69,6 +73,8 @@ pub static DYADIC: [DyadicFn; OP_COUNT] = [
     dispatch_pipe,
     dispatch_underscore,
     dispatch_dollar,
+    dispatch_caret,
+    dispatch_question,
 ];
 
 #[inline]
@@ -261,11 +267,35 @@ pub async fn dispatch_tilde_async(
 // ---- `$` string convert (monadic) / parse (dyadic, reserved) -----------
 
 pub fn dispatch_dollar(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
-    // Dyadic `$` is parse-with-type: reserved.
+    Err(KernelErr::Type)
+}
+pub async fn dispatch_dollar_async(
+    _x: RefObj,
+    _y: RefObj,
+    _ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
     Err(KernelErr::Type)
 }
 
-pub async fn dispatch_dollar_async(
+// ---- `^` sort (monadic) / cut (dyadic, reserved) -----------------------
+
+pub fn dispatch_caret(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+pub async fn dispatch_caret_async(
+    _x: RefObj,
+    _y: RefObj,
+    _ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+
+// ---- `?` unique (monadic) / find (dyadic, reserved) --------------------
+
+pub fn dispatch_question(_x: RefObj, _y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    Err(KernelErr::Type)
+}
+pub async fn dispatch_question_async(
     _x: RefObj,
     _y: RefObj,
     _ctx: &Ctx<'_>,

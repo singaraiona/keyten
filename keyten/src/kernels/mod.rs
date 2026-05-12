@@ -11,6 +11,7 @@ pub mod dyad;
 pub mod compare;
 pub mod minmax;
 pub mod underscore;
+pub mod setops;
 
 // Per-kind streaming chunk defaults. Sized so x_chunk + y_chunk + out_chunk
 // fit comfortably in L2 cache (~512 KiB working set across the three buffers).

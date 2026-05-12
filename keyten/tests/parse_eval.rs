@@ -502,6 +502,54 @@ fn not_bool_vector() {
     assert_eq!(s, &[0, 1, 0]);
 }
 
+// =======================================================================
+// ^ sort, ? unique, monadic % sqrt, | reverse, & where
+// =======================================================================
+
+#[test]
+fn sort_int_vec() {
+    let r = run("^5 2 8 1 9 3");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[1, 2, 3, 5, 8, 9]);
+}
+
+#[test]
+fn sort_float_vec() {
+    let r = run("^3.5 1.5 2.5");
+    assert_eq!(unsafe { r.as_slice::<f64>() }, &[1.5, 2.5, 3.5]);
+}
+
+#[test]
+fn unique_int_vec() {
+    let r = run("?3 1 2 1 3 4 2");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[3, 1, 2, 4]);
+}
+
+#[test]
+fn sqrt_int_atom() {
+    let r = run("%16");
+    assert_eq!(r.kind(), Kind::F64);
+    assert_eq!(unsafe { r.atom::<f64>() }, 4.0);
+}
+
+#[test]
+fn sqrt_float_vec() {
+    let r = run("%1.0 4.0 9.0 16.0");
+    assert_eq!(unsafe { r.as_slice::<f64>() }, &[1.0, 2.0, 3.0, 4.0]);
+}
+
+#[test]
+fn reverse_int_vec() {
+    let r = run("|1 2 3 4 5");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[5, 4, 3, 2, 1]);
+}
+
+#[test]
+fn where_on_bool_vec() {
+    let r = run("& 1 2 3 4 5 > 2");
+    // 1>2 0>2 ... so bools are [0,0,1,1,1]; where → [2,3,4].
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[2, 3, 4]);
+}
+
 #[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).

@@ -96,6 +96,8 @@ fn eval_boxed<'a, 'r>(
                     op::OpId::Pipe => op::dispatch_pipe_async(x, y, ctx).await,
                     op::OpId::Underscore => op::dispatch_underscore_async(x, y, ctx).await,
                     op::OpId::Dollar => op::dispatch_dollar_async(x, y, ctx).await,
+                    op::OpId::Caret => op::dispatch_caret_async(x, y, ctx).await,
+                    op::OpId::Question => op::dispatch_question_async(x, y, ctx).await,
                 };
                 r.map_err(|e| EvalErr::Kernel { err: e, span: *span })
             }
@@ -121,6 +123,16 @@ fn eval_boxed<'a, 'r>(
                         .await
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     op::OpId::Dollar => crate::kernels::monad::string_of(x, ctx)
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Caret => crate::kernels::setops::sort_asc(x, ctx)
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Question => crate::kernels::setops::unique(x, ctx)
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Div => crate::kernels::setops::sqrt(x, ctx)
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Pipe => crate::kernels::setops::reverse(x, ctx)
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Amp => crate::kernels::setops::where_indices(x, ctx)
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     _ => Err(EvalErr::Type {
                         msg: "monadic form not supported for this verb in v1".into(),
