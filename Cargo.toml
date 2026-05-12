@@ -1,0 +1,30 @@
+[package]
+name = "keyten"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "time"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
+
+[[example]]
+name = "calc"
+path = "examples/calc.rs"
