@@ -8,25 +8,35 @@
 
 use core::mem::{align_of, size_of};
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicU32, Ordering};
 use core::{ptr, slice};
 
 use crate::kind::Kind;
 
 /// Heap-allocated header. Atom payload begins at offset 8; vector `len` is at
 /// offset 8 with contiguous data at offset 16.
+///
+/// `rc` is `AtomicU32` so handles can cross threads (Stage 0 of v2 parallel
+/// execution). `AtomicU32` is `#[repr(transparent)]` over `u32`, so the
+/// header layout is byte-identical to the pre-v2 form.
 #[repr(C)]
 pub struct Obj {
     pub meta: i8,
     pub attr: i8,
     pub kind: i8,
     pub _resv: u8,
-    pub rc: u32,
+    pub rc: AtomicU32,
     // payload follows at offset 8
 }
 
 /// Refcounted handle. Identical in size and layout to a raw cell pointer.
 #[repr(transparent)]
 pub struct RefObj(pub(crate) NonNull<Obj>);
+
+// `RefObj` carries shared ownership of an `Obj` whose `rc` is atomic, so it
+// can move across threads. It is intentionally **not** `Sync` — kernel-level
+// in-place mutation (gated by `is_unique`) assumes one writer at a time.
+unsafe impl Send for RefObj {}
 
 // ---- meta byte flags ---------------------------------------------------
 
@@ -122,7 +132,7 @@ impl RefObj {
 
     #[inline]
     pub fn rc(&self) -> u32 {
-        unsafe { (*self.0.as_ptr()).rc }
+        unsafe { (*self.0.as_ptr()).rc.load(Ordering::Relaxed) }
     }
 
     #[inline]
@@ -174,9 +184,16 @@ impl RefObj {
 
     /// Sole owner ⇒ payload may be mutated in place without violating sharing.
     /// External cells (memory we don't own) are never reported unique.
+    ///
+    /// Uses `Acquire` on the atomic load so that any writes performed by a
+    /// previously-dropped sharer (whose `fetch_sub(AcqRel)` brought rc to 1)
+    /// are visible before we proceed with in-place mutation.
     #[inline]
     pub fn is_unique(&self) -> bool {
-        self.meta() & meta_flags::IS_EXTERNAL == 0 && self.rc() == 1
+        if self.meta() & meta_flags::IS_EXTERNAL != 0 {
+            return false;
+        }
+        unsafe { (*self.0.as_ptr()).rc.load(Ordering::Acquire) == 1 }
     }
 
     // ---- typed accessors (unsafe — type contract is on the caller) -----
@@ -226,19 +243,30 @@ mod tests {
     fn obj_size_and_layout() {
         assert_eq!(size_of::<Obj>(), 8);
         assert_eq!(size_of::<RefObj>(), 8);
+        // AtomicU32 is #[repr(transparent)] over u32 — header layout is
+        // byte-identical to the pre-v2 form.
+        assert_eq!(size_of::<AtomicU32>(), 4);
+        assert_eq!(align_of::<AtomicU32>(), 4);
         // Verify offsets within the C-layout struct.
-        let mut o = Obj { meta: 1, attr: 2, kind: 3, _resv: 4, rc: 5 };
+        let mut o = Obj {
+            meta: 1,
+            attr: 2,
+            kind: 3,
+            _resv: 4,
+            rc: AtomicU32::new(5),
+        };
         let base = &o as *const Obj as usize;
         let m = &o.meta as *const i8 as usize;
         let a = &o.attr as *const i8 as usize;
         let k = &o.kind as *const i8 as usize;
         let u = &o._resv as *const u8 as usize;
-        let r = &o.rc as *const u32 as usize;
+        let r = &o.rc as *const AtomicU32 as usize;
         assert_eq!(m - base, 0);
         assert_eq!(a - base, 1);
         assert_eq!(k - base, 2);
         assert_eq!(u - base, 3);
         assert_eq!(r - base, 4);
+        assert_eq!(o.rc.load(Ordering::Relaxed), 5);
         o.meta = 0;
         let _ = o;
     }

@@ -14,6 +14,7 @@
 use core::alloc::Layout;
 use core::ptr::{self, NonNull};
 use core::slice;
+use core::sync::atomic::{AtomicU32, Ordering};
 use std::alloc;
 
 use crate::ctx::Ctx;
@@ -139,12 +140,19 @@ pub unsafe fn release(p: NonNull<Obj>) {
 
 // ---- RefObj rc / drop -------------------------------------------------
 
+// Refcount discipline follows the canonical `Arc` pattern: `Relaxed` on
+// clone (we hold a count, so no synchronization is needed to make the
+// increment visible — it is observable via the count itself), and `AcqRel`
+// on the decrement so the thread that performs the final drop synchronizes
+// with all prior modifications to the cell's payload before `release`
+// reclaims it.
+
 impl Clone for RefObj {
     fn clone(&self) -> Self {
         unsafe {
             let p = self.0.as_ptr();
             if (*p).meta & meta_flags::IS_EXTERNAL == 0 {
-                (*p).rc = (*p).rc.wrapping_add(1);
+                (*p).rc.fetch_add(1, Ordering::Relaxed);
             }
             RefObj(self.0)
         }
@@ -158,16 +166,12 @@ impl Drop for RefObj {
             if (*p).meta & meta_flags::IS_EXTERNAL != 0 {
                 return;
             }
-            (*p).rc -= 1;
-            if (*p).rc == 0 {
+            if (*p).rc.fetch_sub(1, Ordering::AcqRel) == 1 {
                 release(self.0);
             }
         }
     }
 }
-
-// Stage 1 is single-threaded. `RefObj` is intentionally `!Send + !Sync`.
-// When v2 lights up parallelism, `rc` migrates to `AtomicU32`.
 
 // ---- helpers ---------------------------------------------------------
 
@@ -177,7 +181,10 @@ unsafe fn write_header(p: *mut Obj, meta: i8, attr: i8, kind: i8, rc: u32) {
     (*p).attr = attr;
     (*p).kind = kind;
     (*p)._resv = 0;
-    (*p).rc = rc;
+    // The cell's `rc` slot is uninitialised memory at this point (freshly
+    // popped from the freelist or just mmap'd). Construct the atomic in
+    // place via raw write rather than assigning to it.
+    ptr::write(&raw mut (*p).rc, AtomicU32::new(rc));
 }
 
 #[inline]

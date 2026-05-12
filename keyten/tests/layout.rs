@@ -1,6 +1,7 @@
 //! Layout invariants: sizes, alignments, field offsets.
 
 use std::mem::{align_of, size_of};
+use std::sync::atomic::AtomicU32;
 
 use keyten::obj::{Obj, RefObj};
 
@@ -17,15 +18,21 @@ fn refobj_size_is_pointer() {
 
 #[test]
 fn obj_alignment() {
-    // Natural alignment is 4 (u32 refcount); we lay out atom/vec at offset 8
-    // which is naturally u64-aligned because Layout::from_size_align(_, 8)
-    // is used at allocation time.
+    // Natural alignment is 4 (AtomicU32 refcount, repr(transparent) over
+    // u32); we lay out atom/vec at offset 8 which is naturally u64-aligned
+    // because Layout::from_size_align(_, 8) is used at allocation time.
     assert_eq!(align_of::<Obj>(), 4);
 }
 
 #[test]
 fn obj_field_offsets() {
-    let o = Obj { meta: 1, attr: 2, kind: 3, _resv: 4, rc: 5 };
+    let o = Obj {
+        meta: 1,
+        attr: 2,
+        kind: 3,
+        _resv: 4,
+        rc: AtomicU32::new(5),
+    };
     let base = &o as *const Obj as usize;
     assert_eq!(&o.meta as *const _ as usize - base, 0);
     assert_eq!(&o.attr as *const _ as usize - base, 1);
