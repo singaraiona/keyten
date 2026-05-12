@@ -389,22 +389,53 @@ with its own design doc if non-trivial. The Lambda v1.1 design
 - `/:` eachright — not started (needs partial app)
 - `\:` eachleft — not started (needs partial app)
 
-### Phase 4 — Composites: Dict landed; Table TBD
+### Phase 4 — Composites: Dict ✅, Table partial, List ✅
 
 - Dict construct: `keys ! values` ✅ (kind Dict, [keys, values] payload)
-- Dict lookup: `dict @ key` ✅
+- Dict lookup: `dict @ key` ✅ (linear search, kind-matched)
 - Dict accessors: `#dict` (count), `!dict` (keys), `.dict` (values) ✅
-- Display formatter for dict — not started
-- Table (`+dict` flip) — not started
+- Table construction: `+dict` flip ✅ (kind-tag change, full semantics TBD)
+- List literals `(a;b;c)` ✅ (uniform promotion + heterogeneous Kind::List)
+- Dict display formatter — not started
 
-### Phases 1, 5-9: not started
+### Phase 1 — Lambda v1.1 ✅ MINIMAL VIABLE
 
-Phase 1 (Lambda): designed in `2026-05-12-lambda-v1-1.md`, unimplemented.
-Phase 5 (control flow `$[c;t;e]`): parser change needed.
+- AST: `Expr::Lambda`, `Expr::Apply`, `LambdaInner`
+- Lex: `{` `}` `[` `]` tokens
+- Parse: `{body}` (implicit x/y/z auto-detection), `{[a;b] body}` (explicit),
+  `f[args]` bracket apply
+- K-convention arity: max position of x/y/z referenced in body (`{y}`
+  is dyadic, `{x+y*z}` is triadic)
+- Heap: Kind::Lambda atom-shaped cell, `Box<LambdaInner>` payload,
+  release-path drops the box
+- Eval: save-and-restore param scoping; recursion via global-name lookup
+  (works without closures)
+- Tests cover `{x*x}[5]=25`, factorial(5)=120, fibonacci(10)=55,
+  `abs: {$[x<0;-x;x]}; abs[-7]=7`
+- **Deferred**: juxtaposition apply `f x`, lexical closures
+
+### Phase 5 — Control flow `$[c;t;e]` ✅
+
+- Lex/Parse: `$[c;t;e]` recognised in parse_primary; conflict with `$`
+  verb resolved by lookahead in parse_prefix
+- Eval: short-circuit branch eval; truthiness via `cond_is_truthy`
+  (atom: non-zero; vector: first element)
+- Deferred: K9 cond-ladder form `$[c1;t1;c2;t2;...;e]`
+
+### Phases 3 (remaining), 6-9: not started
+
+Phase 3 adverbs `/:` `\:` (eachright/eachleft): need a dyadic-adverb AST
+shape (current `Expr::Adverb` is monadic-shaped). Tractable now that
+lambdas work but needs AST refactor.
+
 Phase 6 (temporal functions `z.d` `z.t`): needs namespace-dot
-identifier parsing (conflicts with current `.` verb token; design call).
-Phase 7 (kSQL): largest remaining piece; needs Lambda + Table.
+identifier parsing (conflicts with current `.` verb token).
+
+Phase 7 (kSQL): largest remaining piece; needs query AST + execution
+model. Lambda + Table foundations now in place.
+
 Phase 8 (IO + FF): needs FFI strategy.
+
 Phase 9 (Knit / named-functions): needs `in`, `like`, `within`, etc.
 
 ### Substrate hardening done in parallel with verbs
@@ -416,7 +447,18 @@ Phase 9 (Knit / named-functions): needs `in`, `like`, `within`, etc.
 
 ### Session totals (2026-05-12)
 
-Commits this session: ~30 across phases 0, 2, 3, 4 plus substrate work
-(CLAUDE.md, K9 audit, lambda design, performance fixes, sanitizer
-runs). The session pushed coverage of the K9 verb surface from 4 to
-19 verbs and adverb coverage from 1 to 4.
+Commits this session: ~40 across phases 0, 1, 2, 3, 4, 5 plus substrate
+work (CLAUDE.md, K9 audit, lambda design, performance fixes, sanitizer
+runs).
+
+K9 surface coverage delta:
+  - Phase 0 (types)   : 0  → DONE (epoch + utilities)
+  - Phase 1 (lambdas) : 0  → minimal viable (incl. recursion)
+  - Phase 2 (verbs)   : 4  → 19 verbs (full primitive set)
+  - Phase 3 (adverbs) : 1  → 4 of 6 (`/` `\` `'` `':`)
+  - Phase 4 (dict/list): 0 → dict + list + table-tag-only
+  - Phase 5 (cond)    : 0  → `$[c;t;e]` works
+
+Phases 6-9 remain unimplemented but well-scoped in the roadmap.
+Test count: 110 parse_eval + ~25 lib unit + 12 parallel + 6 temporal.
+TSan clean throughout. Rayforce parity on `+/!1e8`.
