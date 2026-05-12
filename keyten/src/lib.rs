@@ -10,6 +10,7 @@
 pub mod kind;
 pub mod nulls;
 pub mod sym;
+pub mod temporal;
 
 pub mod obj;
 pub mod runtime;
