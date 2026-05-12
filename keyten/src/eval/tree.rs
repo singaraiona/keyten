@@ -92,6 +92,8 @@ fn eval_boxed<'a, 'r>(
                     op::OpId::Lt => op::dispatch_lt_async(x, y, ctx).await,
                     op::OpId::Gt => op::dispatch_gt_async(x, y, ctx).await,
                     op::OpId::Tilde => op::dispatch_tilde_async(x, y, ctx).await,
+                    op::OpId::Amp => op::dispatch_amp_async(x, y, ctx).await,
+                    op::OpId::Pipe => op::dispatch_pipe_async(x, y, ctx).await,
                 };
                 r.map_err(|e| EvalErr::Kernel { err: e, span: *span })
             }

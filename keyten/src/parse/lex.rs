@@ -33,6 +33,8 @@ pub enum TokenKind {
     Lt, // `<` — dyadic: less-than; monadic: ascending sort indices (reserved)
     Gt, // `>` — dyadic: greater-than; monadic: descending sort indices (reserved)
     Tilde, // `~` — dyadic: match (deep equal); monadic: not
+    Amp, // `&` — dyadic: min; monadic: where (reserved)
+    Pipe, // `|` — dyadic: max; monadic: reverse (reserved)
 
     Slash, // `/` adverb
     Backslash, // `\` adverb (reserved)
@@ -227,6 +229,8 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             b'<' => TokenKind::Lt,
             b'>' => TokenKind::Gt,
             b'~' => TokenKind::Tilde,
+            b'&' => TokenKind::Amp,
+            b'|' => TokenKind::Pipe,
             b'/' => TokenKind::Slash,
             b'\\' => TokenKind::Backslash,
             b':' => TokenKind::Colon,

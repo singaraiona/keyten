@@ -37,9 +37,13 @@ pub enum OpId {
     Gt = 10,
     /// `~` — dyadic match (deep equality, single bool atom). Monadic: not.
     Tilde = 11,
+    /// `&` — dyadic min. Monadic: where (reserved).
+    Amp = 12,
+    /// `|` — dyadic max. Monadic: reverse (reserved).
+    Pipe = 13,
 }
 
-pub const OP_COUNT: usize = 12;
+pub const OP_COUNT: usize = 14;
 
 // Function-pointer table of sync dispatch entries, indexed by `OpId as usize`.
 pub type DyadicFn = fn(RefObj, RefObj, &Ctx) -> Result<RefObj, KernelErr>;
@@ -57,6 +61,8 @@ pub static DYADIC: [DyadicFn; OP_COUNT] = [
     dispatch_lt,
     dispatch_gt,
     dispatch_tilde,
+    dispatch_amp,
+    dispatch_pipe,
 ];
 
 #[inline]
@@ -244,6 +250,42 @@ pub async fn dispatch_tilde_async(
     _ctx: &Ctx<'_>,
 ) -> Result<RefObj, KernelErr> {
     Ok(kernels::compare::match_objs(&x, &y))
+}
+
+// ---- min/max: &, | ----------------------------------------------------
+
+pub fn dispatch_amp(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    block_on(dispatch_amp_async(x, y, ctx))
+}
+pub fn dispatch_pipe(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    block_on(dispatch_pipe_async(x, y, ctx))
+}
+
+pub async fn dispatch_amp_async(x: RefObj, y: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
+    minmax_dispatch(kernels::minmax::MinMax::Min, x, y, ctx).await
+}
+pub async fn dispatch_pipe_async(x: RefObj, y: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
+    minmax_dispatch(kernels::minmax::MinMax::Max, x, y, ctx).await
+}
+
+async fn minmax_dispatch(
+    op: kernels::minmax::MinMax,
+    x: RefObj,
+    y: RefObj,
+    ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    let (xk, yk) = pair(x.kind_raw(), y.kind_raw());
+    match (xk, yk) {
+        (k, _) | (_, k) if k == Kind::F64 as u8 => {
+            let xf = promote_to_f64_async(x, ctx).await?;
+            let yf = promote_to_f64_async(y, ctx).await?;
+            unsafe { kernels::minmax::minmax_f64(op, xf, yf, ctx) }.await
+        }
+        (k1, k2) if k1 == Kind::I64 as u8 && k2 == Kind::I64 as u8 => {
+            unsafe { kernels::minmax::minmax_i64(op, x, y, ctx) }.await
+        }
+        _ => Err(KernelErr::Type),
+    }
 }
 
 async fn compare_dispatch(

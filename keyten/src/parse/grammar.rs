@@ -64,6 +64,8 @@ fn verb_of(kind: &TokenKind) -> Option<OpId> {
         TokenKind::Lt => Some(OpId::Lt),
         TokenKind::Gt => Some(OpId::Gt),
         TokenKind::Tilde => Some(OpId::Tilde),
+        TokenKind::Amp => Some(OpId::Amp),
+        TokenKind::Pipe => Some(OpId::Pipe),
         _ => None,
     }
 }

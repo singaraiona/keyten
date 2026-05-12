@@ -330,6 +330,40 @@ fn match_different_kind() {
     assert_eq!(unsafe { r.atom::<u8>() }, 0);
 }
 
+// =======================================================================
+// Min/max verbs: & |
+// =======================================================================
+
+#[test]
+fn min_atom_atom() {
+    let r = run("3 & 5");
+    assert_eq!(unsafe { r.atom::<i64>() }, 3);
+}
+
+#[test]
+fn max_atom_atom() {
+    let r = run("3 | 5");
+    assert_eq!(unsafe { r.atom::<i64>() }, 5);
+}
+
+#[test]
+fn min_vec_vec() {
+    let r = run("1 5 3 & 2 4 7");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[1, 4, 3]);
+}
+
+#[test]
+fn max_vec_atom_broadcast() {
+    let r = run("1 5 3 10 | 4");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[4, 5, 4, 10]);
+}
+
+#[test]
+fn min_promotes_to_f64() {
+    let r = run("1.5 2.5 3.5 & 2 2 2");
+    assert_eq!(unsafe { r.as_slice::<f64>() }, &[1.5, 2.0, 2.0]);
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn eval_async_runs_under_tokio() {
     let expr = parse("+/ 1 2 3 4 5").unwrap();
