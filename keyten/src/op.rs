@@ -29,9 +29,17 @@ pub enum OpId {
     Hash = 6,
     /// `,` — monadic: enlist (`,x` → one-element list); dyadic: concatenate (reserved).
     Comma = 7,
+    /// `=` — dyadic equality (bool result). Monadic: frequency table (reserved).
+    Eq = 8,
+    /// `<` — dyadic less-than. Monadic: sort-indices-ascending (reserved).
+    Lt = 9,
+    /// `>` — dyadic greater-than. Monadic: sort-indices-descending (reserved).
+    Gt = 10,
+    /// `~` — dyadic match (deep equality, single bool atom). Monadic: not.
+    Tilde = 11,
 }
 
-pub const OP_COUNT: usize = 8;
+pub const OP_COUNT: usize = 12;
 
 // Function-pointer table of sync dispatch entries, indexed by `OpId as usize`.
 pub type DyadicFn = fn(RefObj, RefObj, &Ctx) -> Result<RefObj, KernelErr>;
@@ -45,6 +53,10 @@ pub static DYADIC: [DyadicFn; OP_COUNT] = [
     dispatch_at,
     dispatch_hash,
     dispatch_comma,
+    dispatch_eq,
+    dispatch_lt,
+    dispatch_gt,
+    dispatch_tilde,
 ];
 
 #[inline]
@@ -200,6 +212,58 @@ pub async fn dispatch_comma_async(
     }
     // SAFETY: same non-composite kind on both sides.
     unsafe { kernels::dyad::concat_same_kind_async(x, y, ctx) }.await
+}
+
+// ---- comparison verbs: =, <, >, ~ --------------------------------------
+
+pub fn dispatch_eq(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    block_on(dispatch_eq_async(x, y, ctx))
+}
+pub fn dispatch_lt(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    block_on(dispatch_lt_async(x, y, ctx))
+}
+pub fn dispatch_gt(x: RefObj, y: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    block_on(dispatch_gt_async(x, y, ctx))
+}
+pub fn dispatch_tilde(x: RefObj, y: RefObj, _ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    Ok(kernels::compare::match_objs(&x, &y))
+}
+
+pub async fn dispatch_eq_async(x: RefObj, y: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
+    compare_dispatch(kernels::compare::Cmp::Eq, x, y, ctx).await
+}
+pub async fn dispatch_lt_async(x: RefObj, y: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
+    compare_dispatch(kernels::compare::Cmp::Lt, x, y, ctx).await
+}
+pub async fn dispatch_gt_async(x: RefObj, y: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
+    compare_dispatch(kernels::compare::Cmp::Gt, x, y, ctx).await
+}
+pub async fn dispatch_tilde_async(
+    x: RefObj,
+    y: RefObj,
+    _ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    Ok(kernels::compare::match_objs(&x, &y))
+}
+
+async fn compare_dispatch(
+    cmp: kernels::compare::Cmp,
+    x: RefObj,
+    y: RefObj,
+    ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    let (xk, yk) = pair(x.kind_raw(), y.kind_raw());
+    match (xk, yk) {
+        (k, _) | (_, k) if k == Kind::F64 as u8 => {
+            let xf = promote_to_f64_async(x, ctx).await?;
+            let yf = promote_to_f64_async(y, ctx).await?;
+            unsafe { kernels::compare::compare_f64(cmp, xf, yf, ctx) }.await
+        }
+        (k1, k2) if k1 == Kind::I64 as u8 && k2 == Kind::I64 as u8 => {
+            unsafe { kernels::compare::compare_i64(cmp, x, y, ctx) }.await
+        }
+        _ => Err(KernelErr::Type),
+    }
 }
 
 // ---- numeric promotion ------------------------------------------------

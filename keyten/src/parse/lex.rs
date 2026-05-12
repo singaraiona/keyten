@@ -29,6 +29,10 @@ pub enum TokenKind {
     At, // `@` — monadic: type accessor; dyadic: index/apply (reserved)
     Hash, // `#` — monadic: count; dyadic: take (reserved)
     Comma, // `,` — monadic: enlist; dyadic: concatenate (reserved)
+    Eq, // `=` — dyadic: equality; monadic: frequency table (reserved)
+    Lt, // `<` — dyadic: less-than; monadic: ascending sort indices (reserved)
+    Gt, // `>` — dyadic: greater-than; monadic: descending sort indices (reserved)
+    Tilde, // `~` — dyadic: match (deep equal); monadic: not
 
     Slash, // `/` adverb
     Backslash, // `\` adverb (reserved)
@@ -219,6 +223,10 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, ParseErr> {
             b'@' => TokenKind::At,
             b'#' => TokenKind::Hash,
             b',' => TokenKind::Comma,
+            b'=' => TokenKind::Eq,
+            b'<' => TokenKind::Lt,
+            b'>' => TokenKind::Gt,
+            b'~' => TokenKind::Tilde,
             b'/' => TokenKind::Slash,
             b'\\' => TokenKind::Backslash,
             b':' => TokenKind::Colon,

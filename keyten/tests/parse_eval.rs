@@ -266,6 +266,70 @@ fn hash_take_from_til() {
     assert_eq!(s, &[0, 1, 2]);
 }
 
+// =======================================================================
+// Comparison verbs: = < > ~
+// =======================================================================
+
+#[test]
+fn eq_atom_atom_true() {
+    let r = run("5 = 5");
+    assert_eq!(r.kind(), Kind::Bool);
+    assert_eq!(unsafe { r.atom::<u8>() }, 1);
+}
+
+#[test]
+fn eq_atom_atom_false() {
+    let r = run("5 = 6");
+    assert_eq!(unsafe { r.atom::<u8>() }, 0);
+}
+
+#[test]
+fn lt_vec_vec() {
+    let r = run("1 5 3 < 2 5 1");
+    assert_eq!(r.kind(), Kind::Bool);
+    let s = unsafe { r.as_slice::<u8>() };
+    assert_eq!(s, &[1, 0, 0]);
+}
+
+#[test]
+fn gt_vec_atom_broadcasts() {
+    let r = run("1 5 3 10 > 3");
+    let s = unsafe { r.as_slice::<u8>() };
+    assert_eq!(s, &[0, 1, 0, 1]);
+}
+
+#[test]
+fn eq_promotes_int_and_float() {
+    let r = run("1 2 3 = 1.0 2.0 4.0");
+    let s = unsafe { r.as_slice::<u8>() };
+    assert_eq!(s, &[1, 1, 0]);
+}
+
+#[test]
+fn match_atoms_equal() {
+    let r = run("42 ~ 42");
+    assert_eq!(r.kind(), Kind::Bool);
+    assert_eq!(unsafe { r.atom::<u8>() }, 1);
+}
+
+#[test]
+fn match_atom_and_vec_differ() {
+    let r = run("42 ~ 42 42 42");
+    assert_eq!(unsafe { r.atom::<u8>() }, 0);
+}
+
+#[test]
+fn match_vectors_equal() {
+    let r = run("1 2 3 ~ 1 2 3");
+    assert_eq!(unsafe { r.atom::<u8>() }, 1);
+}
+
+#[test]
+fn match_different_kind() {
+    let r = run("1 ~ 1.0");
+    assert_eq!(unsafe { r.atom::<u8>() }, 0);
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn eval_async_runs_under_tokio() {
     let expr = parse("+/ 1 2 3 4 5").unwrap();

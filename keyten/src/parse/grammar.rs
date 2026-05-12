@@ -60,6 +60,10 @@ fn verb_of(kind: &TokenKind) -> Option<OpId> {
         TokenKind::At => Some(OpId::At),
         TokenKind::Hash => Some(OpId::Hash),
         TokenKind::Comma => Some(OpId::Comma),
+        TokenKind::Eq => Some(OpId::Eq),
+        TokenKind::Lt => Some(OpId::Lt),
+        TokenKind::Gt => Some(OpId::Gt),
+        TokenKind::Tilde => Some(OpId::Tilde),
         _ => None,
     }
 }

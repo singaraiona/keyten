@@ -88,6 +88,10 @@ fn eval_boxed<'a, 'r>(
                     op::OpId::At => op::dispatch_at_async(x, y, ctx).await,
                     op::OpId::Hash => op::dispatch_hash_async(x, y, ctx).await,
                     op::OpId::Comma => op::dispatch_comma_async(x, y, ctx).await,
+                    op::OpId::Eq => op::dispatch_eq_async(x, y, ctx).await,
+                    op::OpId::Lt => op::dispatch_lt_async(x, y, ctx).await,
+                    op::OpId::Gt => op::dispatch_gt_async(x, y, ctx).await,
+                    op::OpId::Tilde => op::dispatch_tilde_async(x, y, ctx).await,
                 };
                 r.map_err(|e| EvalErr::Kernel { err: e, span: *span })
             }
