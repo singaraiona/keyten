@@ -23,6 +23,21 @@ pub struct Runtime {
     /// "Ctrl-C"). Checked alongside the per-task `Ctx.cancelled` flag at every
     /// chunk boundary.
     pub global_cancel: AtomicBool,
+
+    /// Master switch for data-parallel kernel execution. When `false` (the
+    /// default), kernels run on the calling thread via the existing
+    /// single-threaded chunk drivers. When `true`, kernels above
+    /// `PARALLEL_THRESHOLD` elements partition their range across the
+    /// worker pool (Stage 2). No consumers yet — substrate prep.
+    pub parallel: AtomicBool,
+
+    /// Desired worker count when `parallel` is on. `0` means "use
+    /// `cpu_count()`". No consumers yet.
+    pub worker_count: AtomicUsize,
+
+    /// Cached available parallelism. `0` until first probe; populated lazily
+    /// by `cpu_count()` so `Runtime` stays `const`-initialised.
+    pub(crate) cpu_count: AtomicUsize,
 }
 
 pub static RUNTIME: Runtime = Runtime::const_init();
@@ -38,6 +53,9 @@ impl Runtime {
         Self {
             mmap_threshold: AtomicUsize::new(1 << 20), // 1 MiB
             global_cancel: AtomicBool::new(false),
+            parallel: AtomicBool::new(false),
+            worker_count: AtomicUsize::new(0),
+            cpu_count: AtomicUsize::new(0),
         }
     }
 
@@ -56,6 +74,43 @@ impl Runtime {
 
     pub fn clear_cancel(&self) {
         self.global_cancel.store(false, Ordering::Relaxed);
+    }
+
+    /// Number of CPUs available to the process. Probed lazily on first call
+    /// via `std::thread::available_parallelism`; cached for the rest of the
+    /// process. Falls back to `1` on platforms where the probe fails.
+    pub fn cpu_count(&self) -> usize {
+        let cached = self.cpu_count.load(Ordering::Relaxed);
+        if cached != 0 {
+            return cached;
+        }
+        let probed = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        self.cpu_count.store(probed, Ordering::Relaxed);
+        probed
+    }
+
+    /// Resolved worker count for parallel kernels: explicit override if set,
+    /// otherwise `cpu_count()`.
+    pub fn worker_count(&self) -> usize {
+        match self.worker_count.load(Ordering::Relaxed) {
+            0 => self.cpu_count(),
+            n => n,
+        }
+    }
+
+    pub fn set_worker_count(&self, n: usize) {
+        self.worker_count.store(n, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn parallel_enabled(&self) -> bool {
+        self.parallel.load(Ordering::Relaxed)
+    }
+
+    pub fn set_parallel(&self, on: bool) {
+        self.parallel.store(on, Ordering::Relaxed);
     }
 
     /// Pop a 16-byte cell from the per-thread freelist, allocating fresh from
