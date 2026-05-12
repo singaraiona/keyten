@@ -29,11 +29,17 @@ pub mod kernels;
 pub mod adverb;
 pub mod op;
 
+pub mod ast;
+pub mod parse;
+pub mod eval;
+
 pub use ctx::{Ctx, KernelErr};
+pub use eval::{eval, eval_async, Env, EvalErr};
 pub use exec::block_on;
 pub use kind::Kind;
 pub use obj::{Obj, RefObj, attr_flags, meta_flags};
 pub use op::OpId;
+pub use parse::parse;
 pub use render::RenderSink;
 pub use runtime::{Runtime, RUNTIME};
 pub use sym::Sym;
