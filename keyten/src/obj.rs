@@ -74,82 +74,97 @@ const _: () = {
 // ---- accessors --------------------------------------------------------
 
 impl RefObj {
-    /// SAFETY: caller guarantees the pointer is valid and aligned.
+    /// Wrap a raw pointer.
+    ///
+    /// # Safety
+    /// `p` must point to a properly-initialised `Obj` whose refcount the
+    /// caller has just incremented (i.e. the new `RefObj` takes ownership of
+    /// one count). The pointer must remain valid for the new `RefObj`'s
+    /// lifetime (Drop runs `release` when rc reaches 0).
     #[inline]
     pub unsafe fn from_raw(p: NonNull<Obj>) -> Self {
         RefObj(p)
     }
 
+    /// Raw pointer view. The pointer is non-null and properly aligned by
+    /// construction; reading typed fields through it is what carries the
+    /// unsafe contract (see `atom`, `as_slice`).
     #[inline]
     pub fn as_ptr(&self) -> *mut Obj {
         self.0.as_ptr()
     }
 
+    // ---- safe untyped accessors -----------------------------------------
+    //
+    // These read individual bytes / fields of the header. They are safe
+    // because the RefObj invariant guarantees a valid, properly-initialised
+    // `Obj` lives at `self.0`. Constructors are unsafe; the methods are not.
+
     #[inline]
-    pub unsafe fn kind_raw(&self) -> i8 {
-        (*self.0.as_ptr()).kind
+    pub fn kind_raw(&self) -> i8 {
+        unsafe { (*self.0.as_ptr()).kind }
     }
 
     #[inline]
-    pub unsafe fn kind(&self) -> Kind {
+    pub fn kind(&self) -> Kind {
         Kind::from_raw(self.kind_raw())
     }
 
     #[inline]
-    pub unsafe fn attr(&self) -> i8 {
-        (*self.0.as_ptr()).attr
+    pub fn attr(&self) -> i8 {
+        unsafe { (*self.0.as_ptr()).attr }
     }
 
     #[inline]
-    pub unsafe fn meta(&self) -> i8 {
-        (*self.0.as_ptr()).meta
+    pub fn meta(&self) -> i8 {
+        unsafe { (*self.0.as_ptr()).meta }
     }
 
     #[inline]
-    pub unsafe fn rc(&self) -> u32 {
-        (*self.0.as_ptr()).rc
+    pub fn rc(&self) -> u32 {
+        unsafe { (*self.0.as_ptr()).rc }
     }
 
     #[inline]
-    pub unsafe fn set_attr(&mut self, flags: i8) {
-        (*self.0.as_ptr()).attr |= flags;
+    pub fn set_attr(&mut self, flags: i8) {
+        unsafe {
+            (*self.0.as_ptr()).attr |= flags;
+        }
     }
 
     #[inline]
-    pub unsafe fn clear_attr(&mut self, flags: i8) {
-        (*self.0.as_ptr()).attr &= !flags;
+    pub fn clear_attr(&mut self, flags: i8) {
+        unsafe {
+            (*self.0.as_ptr()).attr &= !flags;
+        }
     }
 
     #[inline]
-    pub unsafe fn is_atom(&self) -> bool {
+    pub fn is_atom(&self) -> bool {
         let k = self.kind_raw();
         k < 0 && k > -90
     }
 
     #[inline]
-    pub unsafe fn is_vec(&self) -> bool {
+    pub fn is_vec(&self) -> bool {
         let k = self.kind_raw();
         k > 0 && k < 90
     }
 
-    /// Read the atom payload at offset 8.
+    /// Vector length, read from offset 8. For atoms this returns whatever
+    /// bytes happen to live at that offset reinterpreted as `i64` — only
+    /// meaningful on vector cells.
     #[inline]
-    pub unsafe fn atom<T: Copy>(&self) -> T {
-        let p = self.0.as_ptr() as *const u8;
-        ptr::read_unaligned(p.add(8) as *const T)
+    pub fn len(&self) -> i64 {
+        unsafe {
+            let p = self.0.as_ptr() as *const u8;
+            ptr::read_unaligned(p.add(8) as *const i64)
+        }
     }
 
-    /// Read the vector length at offset 8.
+    /// Whether a vector cell has zero elements. Always `false` for atoms.
     #[inline]
-    pub unsafe fn len(&self) -> i64 {
-        let p = self.0.as_ptr() as *const u8;
-        ptr::read_unaligned(p.add(8) as *const i64)
-    }
-
-    /// Whether the vector has zero elements. Defined for vector cells only;
-    /// returns `false` for atoms (atoms always carry one value).
-    #[inline]
-    pub unsafe fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         if self.is_atom() {
             false
         } else {
@@ -157,27 +172,49 @@ impl RefObj {
         }
     }
 
-    /// Borrow the vector payload as `&[T]`. Caller must know `T` matches the
-    /// kind.
+    /// Sole owner ⇒ payload may be mutated in place without violating sharing.
+    /// External cells (memory we don't own) are never reported unique.
+    #[inline]
+    pub fn is_unique(&self) -> bool {
+        self.meta() & meta_flags::IS_EXTERNAL == 0 && self.rc() == 1
+    }
+
+    // ---- typed accessors (unsafe — type contract is on the caller) -----
+
+    /// Read the 8-byte atom payload reinterpreted as `T`.
+    ///
+    /// # Safety
+    /// `T` must match the storage type of `self.kind()`. Reading the wrong
+    /// type is logical garbage but not memory-unsafe; `as_slice` is the
+    /// stricter case.
+    #[inline]
+    pub unsafe fn atom<T: Copy>(&self) -> T {
+        let p = self.0.as_ptr() as *const u8;
+        ptr::read_unaligned(p.add(8) as *const T)
+    }
+
+    /// Borrow the vector payload as `&[T]`.
+    ///
+    /// # Safety
+    /// `T` must match the storage type of `self.kind()`. A mismatched `T`
+    /// changes the slice's element count interpretation and may cause OOB
+    /// reads on differently-sized types.
     #[inline]
     pub unsafe fn as_slice<T>(&self) -> &[T] {
         let p = self.0.as_ptr() as *const u8;
         slice::from_raw_parts(p.add(16) as *const T, self.len() as usize)
     }
 
-    /// Borrow the vector payload as `&mut [T]`. Caller is responsible for
-    /// uniqueness (see `is_unique`).
+    /// Borrow the vector payload as `&mut [T]`.
+    ///
+    /// # Safety
+    /// As [`as_slice`], plus the caller must ensure exclusive access (i.e.
+    /// `is_unique()` was true, or no other `RefObj` to the same cell exists
+    /// for the duration of the borrow).
     #[inline]
     pub unsafe fn as_mut_slice<T>(&mut self) -> &mut [T] {
         let p = self.0.as_ptr() as *mut u8;
         slice::from_raw_parts_mut(p.add(16) as *mut T, self.len() as usize)
-    }
-
-    /// Sole owner ⇒ payload may be mutated in place without violating sharing.
-    /// External cells (memory we don't own) are never unique.
-    #[inline]
-    pub unsafe fn is_unique(&self) -> bool {
-        self.meta() & meta_flags::IS_EXTERNAL == 0 && self.rc() == 1
     }
 }
 

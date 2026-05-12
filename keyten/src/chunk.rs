@@ -38,18 +38,38 @@ pub fn drive_sync<K: ChunkStep>(k: &mut K, ctx: &Ctx) -> Result<(), KernelErr> {
 
 /// Drive a kernel to completion asynchronously.
 ///
-/// Per chunk: same observation as the sync driver, plus one `YieldNow.await`.
-/// The yield is executor-agnostic — anywhere a `Future` is polled correctly,
-/// this works.
+/// Per chunk: same observation as the sync driver, plus
+/// - an optional `RenderSink` notification when the kernel has advanced past
+///   `stride` since the last notify, and
+/// - one `YieldNow.await` so the executor can run other ready tasks.
+///
+/// On completion the sink (if present) is signalled unconditionally so the UI
+/// gets a final redraw clearing any spinner state.
 pub async fn drive_async<K: ChunkStep>(k: &mut K, ctx: &Ctx<'_>) -> Result<(), KernelErr> {
     while let Some(n) = k.step() {
-        ctx.progress.fetch_add(n as u64, Ordering::Relaxed);
+        let p = ctx.progress.fetch_add(n as u64, Ordering::Relaxed) + n as u64;
         if ctx.cancelled.load(Ordering::Relaxed)
             || ctx.runtime.global_cancel.load(Ordering::Relaxed)
         {
+            if let Some(sink) = ctx.render {
+                sink.notify.notify_one();
+            }
             return Err(KernelErr::Cancelled);
         }
+        if let Some(sink) = ctx.render {
+            let stride = sink.stride.load(Ordering::Relaxed);
+            if stride > 0 {
+                let last = sink.last_notified_progress.load(Ordering::Relaxed);
+                if p.wrapping_sub(last) >= stride {
+                    sink.last_notified_progress.store(p, Ordering::Relaxed);
+                    sink.notify.notify_one();
+                }
+            }
+        }
         YieldNow::new().await;
+    }
+    if let Some(sink) = ctx.render {
+        sink.notify.notify_one();
     }
     Ok(())
 }

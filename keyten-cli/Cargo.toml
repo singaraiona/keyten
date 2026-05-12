@@ -1,0 +1,20 @@
+[package]
+name = "keyten-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "keyten"
+path = "src/main.rs"
+
+[dependencies]
+keyten = { path = "../keyten" }
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "sync", "signal", "time"] }
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
+crossterm = { version = "0.28", default-features = false, features = ["events", "event-stream"] }
+tui-textarea = { version = "0.7", default-features = false, features = ["crossterm", "ratatui"] }
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+dirs = "5"
+anyhow = "1"
