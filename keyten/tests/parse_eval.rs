@@ -364,6 +364,52 @@ fn min_promotes_to_f64() {
     assert_eq!(unsafe { r.as_slice::<f64>() }, &[1.5, 2.0, 2.0]);
 }
 
+// =======================================================================
+// Scan adverb: \
+// =======================================================================
+
+#[test]
+fn scan_plus_i64_small() {
+    let r = run("+\\1 2 3 4 5");
+    assert_eq!(r.kind(), Kind::I64);
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[1, 3, 6, 10, 15]);
+}
+
+#[test]
+fn scan_plus_til() {
+    // +\!5 = running sum of [0,1,2,3,4] = [0,1,3,6,10]
+    let r = run("+\\!5");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[0, 1, 3, 6, 10]);
+}
+
+#[test]
+fn scan_plus_f64() {
+    let r = run("+\\1.0 2.0 3.0");
+    assert_eq!(unsafe { r.as_slice::<f64>() }, &[1.0, 3.0, 6.0]);
+}
+
+#[test]
+fn scan_then_count() {
+    // `+\` produces same-length vector; count should match input length.
+    let r = run("#+\\!10");
+    assert_eq!(unsafe { r.atom::<i64>() }, 10);
+}
+
+#[test]
+fn scan_at_threshold_parallel_path() {
+    // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).
+    // For !N, +\!N[i] = i*(i+1)/2.
+    let r = run("+\\!300000");
+    let s = unsafe { r.as_slice::<i64>() };
+    // Spot-check a few positions instead of materialising the whole 300K
+    // expected vector here.
+    assert_eq!(s[0], 0);
+    assert_eq!(s[1], 1);
+    assert_eq!(s[2], 3);
+    assert_eq!(s[99], 99 * 100 / 2);
+    assert_eq!(s[299_999], 299_999i64 * 300_000 / 2);
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn eval_async_runs_under_tokio() {
     let expr = parse("+/ 1 2 3 4 5").unwrap();

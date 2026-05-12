@@ -127,10 +127,9 @@ fn eval_boxed<'a, 'r>(
                     AdvId::Over => adverb::over_async(*verb, x, ctx)
                         .await
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
-                    AdvId::Scan => Err(EvalErr::Type {
-                        msg: "scan adverb `\\` not implemented in v1".into(),
-                        span: *span,
-                    }),
+                    AdvId::Scan => adverb::scan_async(*verb, x, ctx)
+                        .await
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                 }
             }
             Expr::Seq { items, .. } => {

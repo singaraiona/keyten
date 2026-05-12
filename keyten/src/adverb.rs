@@ -156,6 +156,138 @@ pub async unsafe fn plus_over_i64_async(x: RefObj, ctx: &Ctx<'_>) -> Result<RefO
     Ok(alloc_atom(Kind::I64, acc))
 }
 
+// =======================================================================
+// Scan: `op\x` — running aggregate. Produces a vector the same length as x.
+// =======================================================================
+
+/// `+\x` for I64 vectors: running sum.
+///
+/// Sequential path is a trivial O(n) loop. Parallel path is the standard
+/// two-pass prefix-sum: (1) each worker computes its local prefix sum and
+/// records its sub-range total; (2) sequentially scan the totals to get
+/// each worker's cumulative offset; (3) each worker adds its offset to
+/// every element in its sub-range. Step 2 is O(nworkers) which is
+/// negligible compared to step 1 + 3.
+///
+/// # Safety
+/// `x` must be an I64-kinded vector.
+pub async unsafe fn plus_scan_i64_async(
+    x: RefObj,
+    ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    let xs = x.as_slice::<i64>();
+    let n = xs.len();
+    let mut out = crate::alloc::alloc_vec_i64(ctx, n as i64);
+    if n == 0 {
+        return Ok(out);
+    }
+    let go_parallel = ctx.runtime.parallel_enabled() && n >= parallel::PARALLEL_THRESHOLD;
+
+    if !go_parallel {
+        let os = out.as_mut_slice::<i64>();
+        let mut acc: i64 = 0;
+        for i in 0..n {
+            acc = acc.wrapping_add(xs[i]);
+            os[i] = acc;
+        }
+        return Ok(out);
+    }
+
+    // --- parallel two-pass prefix sum ---
+    let nw = ctx.runtime.worker_count().min(n).max(1);
+    let ranges = parallel::partition::balanced(n, nw);
+
+    let os = out.as_mut_slice::<i64>();
+    let xs_addr = xs.as_ptr() as usize;
+    let os_addr = os.as_mut_ptr() as usize;
+
+    // Each worker writes local prefix sum into its sub-range and reports
+    // its local total. We use a Mutex<Vec<(idx, total)>> to gather totals
+    // out of the parallel scope; per-worker push, ordering is range index.
+    let totals: std::sync::Mutex<Vec<(usize, i64)>> =
+        std::sync::Mutex::new(Vec::with_capacity(nw));
+
+    std::thread::scope(|s| {
+        for (worker_idx, range) in ranges.iter().enumerate() {
+            let r = range.clone();
+            let totals_ref = &totals;
+            s.spawn(move || {
+                let xs = xs_addr as *const i64;
+                let os = os_addr as *mut i64;
+                let mut acc: i64 = 0;
+                unsafe {
+                    for i in r.start..r.end {
+                        acc = acc.wrapping_add(*xs.add(i));
+                        *os.add(i) = acc;
+                    }
+                }
+                totals_ref.lock().unwrap().push((worker_idx, acc));
+            });
+        }
+    });
+
+    // Sequentially compute cumulative offsets across workers (excluding
+    // worker 0, whose local prefix is already global).
+    let mut totals_vec = totals.into_inner().unwrap();
+    totals_vec.sort_by_key(|&(i, _)| i);
+    let mut offsets: Vec<i64> = vec![0; nw];
+    let mut running: i64 = 0;
+    for (idx, t) in totals_vec.iter() {
+        offsets[*idx] = running;
+        running = running.wrapping_add(*t);
+    }
+
+    // Second parallel pass: each worker adds its offset to every element
+    // in its range. (Worker 0 has offset 0 — skip.)
+    std::thread::scope(|s| {
+        for (worker_idx, range) in ranges.into_iter().enumerate() {
+            if offsets[worker_idx] == 0 {
+                continue;
+            }
+            let off = offsets[worker_idx];
+            let os_addr = os_addr;
+            let r = range;
+            s.spawn(move || unsafe {
+                let os = os_addr as *mut i64;
+                for i in r.start..r.end {
+                    *os.add(i) = (*os.add(i)).wrapping_add(off);
+                }
+            });
+        }
+    });
+
+    let _ = &mut out;
+    Ok(out)
+}
+
+/// `+\x` for F64 vectors. Same two-pass shape but with f64 accumulators.
+/// Floating-point summation is not associative, so the parallel result may
+/// differ from sequential by last-ULP on pathological inputs. Documented
+/// per the Runtime.deterministic note in `parallel/reduce.rs`.
+///
+/// # Safety
+/// `x` must be an F64-kinded vector.
+pub async unsafe fn plus_scan_f64_async(
+    x: RefObj,
+    ctx: &Ctx<'_>,
+) -> Result<RefObj, KernelErr> {
+    let xs = x.as_slice::<f64>();
+    let n = xs.len();
+    let mut out = crate::alloc::alloc_vec_f64(ctx, n as i64);
+    if n == 0 {
+        return Ok(out);
+    }
+    // Always sequential for f64 scan in this commit — the order-sensitive
+    // two-pass would deserve its own tested implementation. Drop in later.
+    let os = out.as_mut_slice::<f64>();
+    let mut acc: f64 = 0.0;
+    for i in 0..n {
+        acc += xs[i];
+        os[i] = acc;
+    }
+    Ok(out)
+}
+
 /// # Safety
 /// `x` must be an F64-kinded vector.
 pub async unsafe fn plus_over_f64_async(x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
@@ -212,6 +344,19 @@ pub async fn over_async(op: OpId, x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, Ke
     match (op, k) {
         (OpId::Plus, k) if k == Kind::I64 as u8 => unsafe { plus_over_i64_async(x, ctx) }.await,
         (OpId::Plus, k) if k == Kind::F64 as u8 => unsafe { plus_over_f64_async(x, ctx) }.await,
+        _ => Err(KernelErr::Type),
+    }
+}
+
+/// Async scan: `op\x` — running aggregate, same length as `x`.
+pub async fn scan_async(op: OpId, x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
+    if x.is_atom() {
+        return Ok(x);
+    }
+    let k = x.kind_raw().unsigned_abs();
+    match (op, k) {
+        (OpId::Plus, k) if k == Kind::I64 as u8 => unsafe { plus_scan_i64_async(x, ctx) }.await,
+        (OpId::Plus, k) if k == Kind::F64 as u8 => unsafe { plus_scan_f64_async(x, ctx) }.await,
         _ => Err(KernelErr::Type),
     }
 }
