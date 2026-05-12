@@ -16,6 +16,9 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use crate::ctx::{Ctx, KernelErr};
 
 pub mod partition;
+pub mod reduce;
+
+pub use reduce::parallel_reduce;
 
 /// Element-count threshold below which the parallel path falls through to
 /// the sequential implementation. Below this, partition + thread::scope

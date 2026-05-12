@@ -16,6 +16,7 @@ use crate::madvise::madvise_dontneed_slice;
 use crate::nulls::NULL_I64;
 use crate::obj::{attr_flags, RefObj};
 use crate::op::OpId;
+use crate::parallel;
 use crate::simd;
 
 // =======================================================================
@@ -127,7 +128,23 @@ pub unsafe fn plus_over_f64(x: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
 pub async unsafe fn plus_over_i64_async(x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
     let xs = x.as_slice::<i64>();
     let chunk = if ctx.chunk_elems != 0 { ctx.chunk_elems } else { crate::kernels::I64_CHUNK };
-    let acc = if (x.attr() & attr_flags::HAS_NULLS) == 0 {
+    let has_nulls = (x.attr() & attr_flags::HAS_NULLS) != 0;
+    let go_parallel = !has_nulls
+        && ctx.runtime.parallel_enabled()
+        && xs.len() >= parallel::PARALLEL_THRESHOLD;
+
+    let acc = if go_parallel {
+        // i64 sum is associative under wrapping_add, so parallel partial
+        // order doesn't change the final value.
+        parallel::parallel_reduce(
+            xs.len(),
+            ctx,
+            0i64,
+            |r| SumI64::new(&xs[r], chunk),
+            |k| k.acc,
+            i64::wrapping_add,
+        )?
+    } else if !has_nulls {
         let mut k = SumI64::new(xs, chunk);
         drive_async(&mut k, ctx).await?;
         k.acc
@@ -144,9 +161,28 @@ pub async unsafe fn plus_over_i64_async(x: RefObj, ctx: &Ctx<'_>) -> Result<RefO
 pub async unsafe fn plus_over_f64_async(x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
     let xs = x.as_slice::<f64>();
     let chunk = if ctx.chunk_elems != 0 { ctx.chunk_elems } else { crate::kernels::F64_CHUNK };
-    let mut k = SumF64::new(xs, chunk);
-    drive_async(&mut k, ctx).await?;
-    Ok(alloc_atom(Kind::F64, k.acc))
+    let go_parallel = ctx.runtime.parallel_enabled() && xs.len() >= parallel::PARALLEL_THRESHOLD;
+
+    let acc = if go_parallel {
+        // f64 sum is NOT associative — parallel partials sum in a different
+        // order from sequential, giving last-ULP-different results on
+        // pathological inputs. Documented behavior; a future
+        // Runtime.deterministic flag will route through the sequential
+        // path when bit-exact behavior is required.
+        parallel::parallel_reduce(
+            xs.len(),
+            ctx,
+            0.0f64,
+            |r| SumF64::new(&xs[r], chunk),
+            |k| k.acc,
+            |a, b| a + b,
+        )?
+    } else {
+        let mut k = SumF64::new(xs, chunk);
+        drive_async(&mut k, ctx).await?;
+        k.acc
+    };
+    Ok(alloc_atom(Kind::F64, acc))
 }
 
 // =======================================================================

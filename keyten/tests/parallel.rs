@@ -15,6 +15,7 @@
 
 use std::sync::Mutex;
 
+use keyten::adverb::plus_over_i64_async;
 use keyten::alloc::alloc_vec_i64;
 use keyten::block_on;
 use keyten::kernels::plus::plus_i64_vec_vec_async;
@@ -110,6 +111,62 @@ fn well_above_threshold_ten_million() {
     let seq = run_plus(false, &xs, &ys);
     let par = run_plus(true, &xs, &ys);
     assert_results_match(&seq, &par);
+}
+
+// =======================================================================
+// Reductions: plus_over_i64 (+/)
+// =======================================================================
+
+fn run_plus_over(parallel: bool, xs: &[i64]) -> i64 {
+    let _guard = SERIAL.lock().unwrap();
+    let prev = RUNTIME.parallel_enabled();
+    RUNTIME.set_parallel(parallel);
+
+    let x = make_vec_i64(xs);
+    let result = block_on(async move {
+        unsafe {
+            plus_over_i64_async(x, &Ctx::quiet())
+                .await
+                .expect("plus_over kernel must succeed")
+        }
+    });
+    let acc = unsafe { result.atom::<i64>() };
+    drop(result);
+
+    RUNTIME.set_parallel(prev);
+    acc
+}
+
+#[test]
+fn plus_over_parallel_matches_sequential() {
+    let n: i64 = 1_000_000;
+    let xs: Vec<i64> = (0..n).collect();
+    let seq = run_plus_over(false, &xs);
+    let par = run_plus_over(true, &xs);
+    assert_eq!(seq, par, "i64 sum must be exact under wrapping_add");
+    // Sanity: 0+1+...+(n-1) = n*(n-1)/2.
+    assert_eq!(seq, n * (n - 1) / 2);
+}
+
+#[test]
+fn plus_over_large_parallel_matches_sequential() {
+    // Above threshold, large enough to put real work on each worker.
+    let n: i64 = 50_000_000;
+    let xs: Vec<i64> = (0..n).collect();
+    let seq = run_plus_over(false, &xs);
+    let par = run_plus_over(true, &xs);
+    assert_eq!(seq, par);
+    assert_eq!(seq, n * (n - 1) / 2);
+}
+
+#[test]
+fn plus_over_below_threshold() {
+    // Sub-threshold input: parallel flag has no effect, both paths sequential.
+    let xs: Vec<i64> = (0..1024).collect();
+    let seq = run_plus_over(false, &xs);
+    let par = run_plus_over(true, &xs);
+    assert_eq!(seq, par);
+    assert_eq!(seq, 1024 * 1023 / 2);
 }
 
 #[test]

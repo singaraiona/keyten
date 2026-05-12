@@ -12,6 +12,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
+use keyten::adverb::plus_over_i64_async;
 use keyten::alloc::alloc_vec_i64;
 use keyten::block_on;
 use keyten::kernels::plus::plus_i64_vec_vec_async;
@@ -28,7 +29,7 @@ fn make_vec(n: i64, f: impl Fn(i64) -> i64) -> RefObj {
 
 /// One end-to-end run: build inputs, run kernel, drop result. The
 /// measurement covers only the kernel call, not input construction.
-fn run_one(n: i64) -> Duration {
+fn run_one_vec_vec(n: i64) -> Duration {
     let x = make_vec(n, |i| i);
     let y = make_vec(n, |i| i.wrapping_mul(7).wrapping_sub(13));
     let start = Instant::now();
@@ -46,6 +47,23 @@ fn run_one(n: i64) -> Duration {
     elapsed
 }
 
+/// One end-to-end +/ (plus-over) run.
+fn run_one_plus_over(n: i64) -> Duration {
+    let x = make_vec(n, |i| i);
+    let start = Instant::now();
+    let result = block_on(async move {
+        unsafe {
+            plus_over_i64_async(x, &Ctx::quiet())
+                .await
+                .expect("plus_over kernel must succeed")
+        }
+    });
+    let elapsed = start.elapsed();
+    black_box(unsafe { result.atom::<i64>() });
+    drop(result);
+    elapsed
+}
+
 fn unique_worker_counts(cpu: usize) -> Vec<usize> {
     let mut wcs: Vec<usize> = vec![1, 2, 4, 8, cpu];
     wcs.sort_unstable();
@@ -53,14 +71,13 @@ fn unique_worker_counts(cpu: usize) -> Vec<usize> {
     wcs.into_iter().filter(|&w| w > 0).collect()
 }
 
-fn bench_size(n: i64, label: &str) {
+fn bench_sweep<F: Fn(i64) -> Duration>(n: i64, label: &str, kernel: &str, run: F) {
     println!();
-    println!("--- n = {} ({}) -------------------------------------", label, n);
+    println!("--- {kernel} @ n = {label} ({n}) ---");
 
-    // Sequential baseline.
     RUNTIME.set_parallel(false);
     RUNTIME.set_worker_count(0);
-    let t_seq = run_one(n);
+    let t_seq = run(n);
     let ns_seq = t_seq.as_nanos() as f64 / n as f64;
     println!(
         "{:<14} {:>8.3} ms   {:>6.3} ns/elem",
@@ -69,11 +86,10 @@ fn bench_size(n: i64, label: &str) {
         ns_seq,
     );
 
-    // Parallel sweep.
     RUNTIME.set_parallel(true);
     for nw in unique_worker_counts(RUNTIME.cpu_count()) {
         RUNTIME.set_worker_count(nw);
-        let t = run_one(n);
+        let t = run(n);
         let ns = t.as_nanos() as f64 / n as f64;
         let speedup = t_seq.as_secs_f64() / t.as_secs_f64();
         println!(
@@ -85,7 +101,6 @@ fn bench_size(n: i64, label: &str) {
         );
     }
 
-    // Restore defaults.
     RUNTIME.set_parallel(false);
     RUNTIME.set_worker_count(0);
 }
@@ -96,7 +111,13 @@ fn main() {
     println!("PARALLEL_THRESHOLD: {} elements", keyten::parallel::PARALLEL_THRESHOLD);
     println!("I64_CHUNK: {} elements per chunk", keyten::kernels::I64_CHUNK);
 
-    bench_size(1_000_000, "1M");
-    bench_size(10_000_000, "10M");
-    bench_size(100_000_000, "100M");
+    println!("\n========== vec+vec (write-heavy, 3 streams) ==========");
+    bench_sweep(1_000_000, "1M", "vec+vec", run_one_vec_vec);
+    bench_sweep(10_000_000, "10M", "vec+vec", run_one_vec_vec);
+    bench_sweep(100_000_000, "100M", "vec+vec", run_one_vec_vec);
+
+    println!("\n========== +/x (read-heavy, 1 stream + scalar) ==========");
+    bench_sweep(1_000_000, "1M", "+/x", run_one_plus_over);
+    bench_sweep(10_000_000, "10M", "+/x", run_one_plus_over);
+    bench_sweep(100_000_000, "100M", "+/x", run_one_plus_over);
 }
