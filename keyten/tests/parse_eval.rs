@@ -474,6 +474,34 @@ fn dollar_bool() {
     assert_eq!(run_str("$ 0 = 1"), "0b");
 }
 
+// =======================================================================
+// ~ monadic (not)
+// =======================================================================
+
+#[test]
+fn not_bool_atom() {
+    // ~1b = 0b (using the equality verb to produce a bool)
+    let r = run("~ 0 = 0");
+    assert_eq!(r.kind(), Kind::Bool);
+    assert_eq!(unsafe { r.atom::<u8>() }, 0);
+}
+
+#[test]
+fn not_int_atom() {
+    let r = run("~5");
+    assert_eq!(r.kind(), Kind::Bool);
+    assert_eq!(unsafe { r.atom::<u8>() }, 0);
+    let r = run("~0");
+    assert_eq!(unsafe { r.atom::<u8>() }, 1);
+}
+
+#[test]
+fn not_bool_vector() {
+    let r = run("~ 1 2 3 = 1 5 3");
+    let s = unsafe { r.as_slice::<u8>() };
+    assert_eq!(s, &[0, 1, 0]);
+}
+
 #[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).

@@ -115,6 +115,8 @@ fn eval_boxed<'a, 'r>(
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     op::OpId::Comma => crate::kernels::monad::enlist(x, ctx)
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Tilde => crate::kernels::monad::not(x, ctx)
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     op::OpId::Underscore => unsafe { crate::kernels::underscore::floor_async(x, ctx) }
                         .await
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),

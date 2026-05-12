@@ -84,6 +84,66 @@ fn _sym_marker(s: Sym) -> Sym {
     s
 }
 
+/// Monadic `~x` — not. For Bool: invert. For I64/F64: 1 if zero, 0 if
+/// non-zero (K convention). Returns Bool atom or Bool vector.
+pub fn not(x: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    let kind = x.kind();
+    match kind {
+        Kind::Bool => {
+            if x.is_atom() {
+                let b = unsafe { x.atom::<u8>() };
+                Ok(unsafe { alloc_atom(Kind::Bool, if b == 0 { 1u8 } else { 0u8 }) })
+            } else {
+                let xs = unsafe { x.as_slice::<u8>() };
+                let n = xs.len();
+                let mut out = unsafe { alloc_vec(ctx, Kind::Bool.vec(), n as i64, 1) };
+                unsafe {
+                    let os = out.as_mut_slice::<u8>();
+                    for i in 0..n {
+                        os[i] = if xs[i] == 0 { 1 } else { 0 };
+                    }
+                }
+                Ok(out)
+            }
+        }
+        Kind::I64 => {
+            if x.is_atom() {
+                let v = unsafe { x.atom::<i64>() };
+                Ok(unsafe { alloc_atom(Kind::Bool, if v == 0 { 1u8 } else { 0u8 }) })
+            } else {
+                let xs = unsafe { x.as_slice::<i64>() };
+                let n = xs.len();
+                let mut out = unsafe { alloc_vec(ctx, Kind::Bool.vec(), n as i64, 1) };
+                unsafe {
+                    let os = out.as_mut_slice::<u8>();
+                    for i in 0..n {
+                        os[i] = if xs[i] == 0 { 1 } else { 0 };
+                    }
+                }
+                Ok(out)
+            }
+        }
+        Kind::F64 => {
+            if x.is_atom() {
+                let v = unsafe { x.atom::<f64>() };
+                Ok(unsafe { alloc_atom(Kind::Bool, if v == 0.0 { 1u8 } else { 0u8 }) })
+            } else {
+                let xs = unsafe { x.as_slice::<f64>() };
+                let n = xs.len();
+                let mut out = unsafe { alloc_vec(ctx, Kind::Bool.vec(), n as i64, 1) };
+                unsafe {
+                    let os = out.as_mut_slice::<u8>();
+                    for i in 0..n {
+                        os[i] = if xs[i] == 0.0 { 1 } else { 0 };
+                    }
+                }
+                Ok(out)
+            }
+        }
+        _ => Err(KernelErr::Type),
+    }
+}
+
 /// Monadic `$x` — convert an atom to a char vector (string). For now we
 /// support I64, F64, Bool, Sym atoms; vectors return KernelErr::Type
 /// pending a per-kind "format each element" pass.

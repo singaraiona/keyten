@@ -347,3 +347,47 @@ with its own design doc if non-trivial. The Lambda v1.1 design
 - **Cross-implementation conformance tests** — once a K9 reference
   is available, build a test corpus that exercises each verb /
   adverb / type on inputs whose results can be compared byte-exact.
+
+---
+
+## Live progress (updated 2026-05-12)
+
+### Phase 0 — Type system corrections ✅ DONE
+- `kind.rs`: 2001-01-01 epoch documented; K9 letter codes added.
+- `temporal.rs`: Hinnant civil_from_days conversion; time-of-day helpers; dt composition.
+- All round-trip tests pass.
+
+### Phase 2 — Verbs: 15 of ~17 covered
+
+| Verb | Monadic | Dyadic | Status |
+|---|---|---|---|
+| `+` | identity | add | ✅ both |
+| `-` | negate | subtract | ✅ both |
+| `*` | identity | multiply | ✅ both |
+| `%` | sqrt (TODO) | divide | dyadic |
+| `!` | til | mod (TODO) | monadic |
+| `,` | enlist | concat | ✅ both |
+| `#` | count | take | ✅ both |
+| `@` | type | index/apply (needs λ) | monadic |
+| `=` | freq (TODO) | equality | dyadic |
+| `<` | asc-idx (TODO) | less-than | dyadic |
+| `>` | desc-idx (TODO) | greater-than | dyadic |
+| `~` | not | match | ✅ both |
+| `&` | where (TODO) | min | dyadic |
+| `\|` | reverse (TODO) | max | dyadic |
+| `_` | floor | drop | ✅ both |
+| `$` | string-convert | parse (TODO) | monadic |
+| `?` | unique (TODO) | find (TODO) | — |
+| `.` | value (TODO) | dict/apply (TODO) | — |
+| `^` | sort (TODO) | cut (TODO) | — |
+
+### Phase 3 — Adverbs: 2 of 6 covered
+- `/` over — parallel reduce ✅
+- `\` scan — parallel two-pass prefix sum (i64), sequential (f64) ✅
+- `'` `':` `/:` `\:` — not started
+
+### Substrate hardening done in parallel with verbs
+- Performance mandate locked in `CLAUDE.md`.
+- TSan re-run after every kernel-touching commit; clean across 12 parallel tests.
+- Rayforce parity on `+/!1e8` (~37 ms median, commit `2a5c80a`).
+- Test count: 66 parse_eval, 25+ lib unit, 12 parallel/TSan, 6 temporal.
