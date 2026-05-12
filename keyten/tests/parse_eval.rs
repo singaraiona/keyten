@@ -646,6 +646,22 @@ fn vec_index_out_of_range_is_null() {
 }
 
 #[test]
+fn count_dict_returns_entry_count() {
+    // 3 key-value pairs → #dict = 3 (not 2, the storage shape).
+    let r = run("#1 2 3 ! 10 20 30");
+    assert_eq!(unsafe { r.atom::<i64>() }, 3);
+}
+
+#[test]
+fn bang_dict_returns_keys() {
+    // !dict overloads til. The result should be the keys vector.
+    let r = run("!1 2 3 ! 10 20 30");
+    assert!(r.is_vec());
+    assert_eq!(r.kind(), Kind::I64);
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[1, 2, 3]);
+}
+
+#[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).
     // For !N, +\!N[i] = i*(i+1)/2.

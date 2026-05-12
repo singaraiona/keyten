@@ -36,9 +36,18 @@ pub fn type_of(x: RefObj) -> Result<RefObj, KernelErr> {
 }
 
 /// `#x` — count: number of elements in `x`. Atom → `1`; vector → length;
-/// dict/table → number of entries.
+/// dict → number of entries (length of values vector); table → row count.
 pub fn count(x: RefObj) -> Result<RefObj, KernelErr> {
-    let n: i64 = if x.is_atom() { 1 } else { x.len() };
+    let n: i64 = if x.is_atom() {
+        1
+    } else if x.kind() == Kind::Dict {
+        // Storage len is 2 (keys, values RefObjs). Entry count is the
+        // length of the values vector.
+        let values = crate::kernels::dict::dict_values(&x)?;
+        values.len()
+    } else {
+        x.len()
+    };
     Ok(unsafe { alloc_atom(Kind::I64, n) })
 }
 

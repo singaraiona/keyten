@@ -108,9 +108,17 @@ fn eval_boxed<'a, 'r>(
                     op::OpId::Minus => negate_async(x, ctx)
                         .await
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
-                    op::OpId::Bang => crate::kernels::til::til_async(x, ctx)
-                        .await
-                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    op::OpId::Bang => {
+                        // K9: `!dict` returns keys; `!N` (i64 atom) is til.
+                        if x.kind() == Kind::Dict {
+                            crate::kernels::dict::dict_keys(&x)
+                                .map_err(|e| EvalErr::Kernel { err: e, span: *span })
+                        } else {
+                            crate::kernels::til::til_async(x, ctx)
+                                .await
+                                .map_err(|e| EvalErr::Kernel { err: e, span: *span })
+                        }
+                    }
                     op::OpId::At => crate::kernels::monad::type_of(x)
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                     op::OpId::Hash => crate::kernels::monad::count(x)
