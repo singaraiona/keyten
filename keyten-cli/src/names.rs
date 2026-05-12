@@ -1,10 +1,15 @@
 //! A `Send + Sync` registry of bound names, decoupled from `Env`.
 //!
-//! reedline's `Highlighter` / `Completer` traits require `Send`, but `Env`
-//! contains `RefObj`s which are `!Send` (non-atomic refcount). The
-//! highlighter/completer don't need RefObjs — they only need to know which
-//! identifiers are currently bound. We maintain this small registry alongside
-//! `Env` and refresh it after each successful eval.
+//! reedline's `Highlighter` / `Completer` traits require `Send + Sync`. As of
+//! v2 stage 0 `RefObj` is `Send` (atomic refcount), but it is **not** `Sync`
+//! — concurrent in-place mutation is gated by `is_unique()` which assumes a
+//! single writer at a time. That makes `Env` (a `HashMap<Sym, RefObj>`)
+//! `Send` but not `Sync`, so it can't be shared via `Arc<Mutex<…>>` to the
+//! reedline traits cleanly.
+//!
+//! The highlighter/completer don't need RefObjs anyway — they only need to
+//! know which identifiers are currently bound. We maintain this small
+//! registry alongside `Env` and refresh it after each successful eval.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};

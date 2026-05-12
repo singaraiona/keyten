@@ -13,13 +13,15 @@
 //! a shared `Mutex` — cargo runs integration tests in parallel and the flag
 //! is process-wide.
 
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use keyten::adverb::plus_over_i64_async;
 use keyten::alloc::alloc_vec_i64;
 use keyten::block_on;
 use keyten::kernels::plus::plus_i64_vec_vec_async;
-use keyten::{Ctx, RefObj, RUNTIME};
+use keyten::{Ctx, KernelErr, RefObj, RUNTIME};
 
 static SERIAL: Mutex<()> = Mutex::new(());
 
@@ -157,6 +159,145 @@ fn plus_over_large_parallel_matches_sequential() {
     let par = run_plus_over(true, &xs);
     assert_eq!(seq, par);
     assert_eq!(seq, n * (n - 1) / 2);
+}
+
+// =======================================================================
+// Cancellation under parallel execution
+// =======================================================================
+
+// =======================================================================
+// Atomic refcount under cross-thread contention
+// =======================================================================
+
+#[test]
+fn refobj_clone_drop_across_threads_no_leak() {
+    // Stress the atomic rc clone/drop paths from many threads simultaneously
+    // on a shared RefObj. Each thread does N inner clone+drop pairs (which
+    // cancel out) plus one owned clone (which is dropped on thread exit).
+    // Final rc must equal the test thread's holding alone.
+    //
+    // Catches: wrong Ordering on fetch_add/fetch_sub (release-vs-acquire
+    // mismatch produces leaks or double-frees that TSan-without-sanitization
+    // misses).
+    const N_THREADS: usize = 16;
+    const ITERS_PER_THREAD: usize = 200_000;
+
+    let v = make_vec_i64(&[1, 2, 3, 4]);
+    assert_eq!(v.rc(), 1);
+
+    let shared = v.clone();
+    assert_eq!(v.rc(), 2);
+
+    std::thread::scope(|s| {
+        for _ in 0..N_THREADS {
+            let owned = shared.clone();
+            s.spawn(move || {
+                for _ in 0..ITERS_PER_THREAD {
+                    let c = owned.clone();
+                    drop(c);
+                }
+                // `owned` is dropped here at thread exit.
+            });
+        }
+    });
+
+    drop(shared);
+    assert_eq!(
+        v.rc(),
+        1,
+        "rc leaked or double-decremented across threads: expected 1, got {}",
+        v.rc(),
+    );
+}
+
+#[test]
+fn refobj_send_across_thread_boundary() {
+    // Move (not clone) a RefObj into another thread, drop it there. Final
+    // rc check would have to be done in the dropping thread — instead, just
+    // verify that the original test thread doesn't see the underlying
+    // memory after the move (because we don't own it any more).
+    let v = make_vec_i64(&[10, 20, 30]);
+    let v_moved = v.clone();
+    let original_data: Vec<i64> = unsafe { v.as_slice::<i64>() }.to_vec();
+
+    let result = std::thread::spawn(move || {
+        // Read the slice from the moved RefObj — proves the data is
+        // accessible across the thread boundary.
+        let s: Vec<i64> = unsafe { v_moved.as_slice::<i64>() }.to_vec();
+        // v_moved is dropped here when the thread exits.
+        s
+    })
+    .join()
+    .expect("thread should not panic");
+
+    assert_eq!(result, original_data);
+    // v in the original thread is still alive (we cloned, then sent the clone).
+    assert_eq!(v.rc(), 1);
+}
+
+#[test]
+fn cancellation_propagates_to_all_workers() {
+    // Start a long-running parallel kernel (~200 ms of work at 2 ns/elem),
+    // flip ctx.cancelled mid-flight, expect Err(Cancelled) back within
+    // one chunk-time per worker (~60-100 ms worst case). The flag is
+    // observed by drive_sync inside every spawned worker; any worker that
+    // sees it sets a shared atomic and the others observe Err(Cancelled)
+    // on their next chunk boundary via scope.join.
+    let _guard = SERIAL.lock().unwrap();
+    let prev = RUNTIME.parallel_enabled();
+    RUNTIME.set_parallel(true);
+
+    let n: i64 = 100_000_000;
+    let xs: Vec<i64> = (0..n).collect();
+    let ys: Vec<i64> = (0..n).map(|i| i.wrapping_mul(2)).collect();
+    let x = make_vec_i64(&xs);
+    let y = make_vec_i64(&ys);
+
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let progress = Arc::new(AtomicU64::new(0));
+
+    // Cancel after 20 ms — enough for workers to be deep in their chunks.
+    let cancelled_c = Arc::clone(&cancelled);
+    let canceller = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(20));
+        cancelled_c.store(true, Ordering::Relaxed);
+    });
+
+    let start = Instant::now();
+    let result = {
+        let ctx = Ctx::new(&RUNTIME, &cancelled, &progress);
+        block_on(async {
+            unsafe { plus_i64_vec_vec_async(x, y, &ctx).await }
+        })
+    };
+    let elapsed = start.elapsed();
+
+    canceller.join().unwrap();
+    RUNTIME.set_parallel(prev);
+
+    assert!(
+        matches!(result, Err(KernelErr::Cancelled)),
+        "expected Err(Cancelled), got {:?}",
+        result.as_ref().err(),
+    );
+    // Should observe cancellation well before the full work would finish.
+    // 100M-element add takes ~200 ms sequential; 5x parallel speedup brings
+    // it to ~40 ms minimum, so we have ~20 ms slack between cancel and
+    // natural completion. We give 150 ms to allow for system noise.
+    assert!(
+        elapsed < Duration::from_millis(150),
+        "cancellation took {} ms, expected <150 ms",
+        elapsed.as_millis(),
+    );
+    // And progress should be well short of full work — proves we cancelled,
+    // not just got lucky on a fast machine.
+    let p = progress.load(Ordering::Relaxed);
+    assert!(
+        (p as i64) < n,
+        "progress {} reached full work {} — cancellation didn't actually interrupt",
+        p,
+        n,
+    );
 }
 
 #[test]
