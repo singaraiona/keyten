@@ -31,7 +31,7 @@ pub fn format_with_width(r: &RefObj, max_width: usize) -> String {
         | Kind::DtS | Kind::DtMs | Kind::DtUs | Kind::DtNs => {
             format_int_vec::<i64>(r, has_nulls, render_i64, max_width)
         }
-        Kind::List | Kind::Dict | Kind::Table => Style::new()
+        Kind::List | Kind::Dict | Kind::Table | Kind::Lambda => Style::new()
             .dimmed()
             .paint(format!("<{:?}>", r.kind()))
             .to_string(),
