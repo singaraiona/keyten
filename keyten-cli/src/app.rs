@@ -25,6 +25,7 @@ use crate::highlighter::KHighlighter;
 use crate::history::open as open_history;
 use crate::names::{Names, SharedNames};
 use crate::prompt::KPrompt;
+use crate::syscmd::{self, SysOutcome};
 use crate::validator::KValidator;
 
 pub fn run() -> Result<()> {
@@ -47,6 +48,18 @@ pub fn run() -> Result<()> {
             Ok(Signal::Success(text)) => {
                 let trimmed = text.trim();
                 if trimmed.is_empty() {
+                    continue;
+                }
+                if trimmed.starts_with('\\') {
+                    let mut env_borrow = env.borrow_mut();
+                    let out = syscmd::dispatch(trimmed, &mut env_borrow)?;
+                    if let Ok(mut n) = names.lock() {
+                        n.refresh_from(&env_borrow);
+                    }
+                    drop(env_borrow);
+                    if matches!(out, SysOutcome::Quit) {
+                        break;
+                    }
                     continue;
                 }
                 if trimmed.starts_with(':') {
@@ -190,6 +203,15 @@ fn run_pipe(env: Rc<RefCell<Env>>) -> Result<()> {
         };
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('/') {
+            continue;
+        }
+        if trimmed.starts_with('\\') {
+            let mut env_borrow = env.borrow_mut();
+            let out = syscmd::dispatch(trimmed, &mut env_borrow)?;
+            drop(env_borrow);
+            if matches!(out, SysOutcome::Quit) {
+                break;
+            }
             continue;
         }
         if trimmed.starts_with(':') {

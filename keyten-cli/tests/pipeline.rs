@@ -77,6 +77,26 @@ fn atom_never_truncated() {
     assert_eq!(s, "499500");
 }
 
+#[test]
+fn syscmd_dispatch_quit() {
+    use keyten_cli::syscmd::{dispatch, SysOutcome};
+    let mut env = Env::new();
+    match dispatch("\\\\", &mut env).unwrap() {
+        SysOutcome::Quit => {}
+        _ => panic!("expected Quit"),
+    }
+}
+
+#[test]
+fn syscmd_dispatch_help() {
+    use keyten_cli::syscmd::{dispatch, SysOutcome};
+    let mut env = Env::new();
+    match dispatch("\\h", &mut env).unwrap() {
+        SysOutcome::Continue => {}
+        _ => panic!("expected Continue"),
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn eval_async_under_tokio() {
     let expr = keyten::parse("+/ 1 2 3 4 5").unwrap();

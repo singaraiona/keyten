@@ -9,4 +9,5 @@ pub mod history;
 pub mod names;
 pub mod progress;
 pub mod prompt;
+pub mod syscmd;
 pub mod validator;
