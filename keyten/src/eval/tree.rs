@@ -154,6 +154,9 @@ fn eval_boxed<'a, 'r>(
                     AdvId::Each => adverb::each_async(*verb, x, ctx)
                         .await
                         .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
+                    AdvId::EachPrior => adverb::eachprior_async(*verb, x, ctx)
+                        .await
+                        .map_err(|e| EvalErr::Kernel { err: e, span: *span }),
                 }
             }
             Expr::Seq { items, .. } => {

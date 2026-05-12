@@ -573,6 +573,31 @@ fn each_sqrt_int_vec() {
     assert_eq!(unsafe { r.as_slice::<f64>() }, &[1.0, 2.0, 3.0, 4.0]);
 }
 
+// =======================================================================
+// EachPrior adverb: ':
+// =======================================================================
+
+#[test]
+fn eachprior_plus_pairs() {
+    // +':1 2 3 4  →  [1, 3, 5, 7]  (first elem stays; rest x[i]+x[i-1])
+    let r = run("+':1 2 3 4");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[1, 3, 5, 7]);
+}
+
+#[test]
+fn eachprior_minus_first_differences() {
+    // -':1 3 6 10 →  [1, 2, 3, 4]  (first differences)
+    let r = run("-':1 3 6 10");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[1, 2, 3, 4]);
+}
+
+#[test]
+fn eachprior_minus_inverts_scan() {
+    // -':+\v should recover v (running sum then first-differences).
+    let r = run("-':+\\1 2 3 4 5");
+    assert_eq!(unsafe { r.as_slice::<i64>() }, &[1, 2, 3, 4, 5]);
+}
+
 #[test]
 fn scan_at_threshold_parallel_path() {
     // Force the parallel branch by going past PARALLEL_THRESHOLD (256K).

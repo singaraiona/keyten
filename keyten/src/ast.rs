@@ -61,6 +61,9 @@ pub enum AdvId {
     Scan,
     /// `'` — each: apply the monadic verb to each element.
     Each,
+    /// `':` — eachprior: apply the dyadic verb to consecutive pairs.
+    /// `f':v` produces `[v[0], f(v[1], v[0]), f(v[2], v[1]), ...]`.
+    EachPrior,
 }
 
 /// Expressions in the source language.

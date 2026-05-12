@@ -393,6 +393,51 @@ async fn apply_monad(op: OpId, x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, Kerne
     }
 }
 
+/// `f':x` — eachprior. Apply dyadic verb to consecutive pairs:
+/// result[0] = x[0], result[i] = f(x[i], x[i-1]).
+pub async fn eachprior_async(op: OpId, x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
+    if x.is_atom() {
+        return Ok(x);
+    }
+    let kind = x.kind();
+    match (op, kind) {
+        (OpId::Minus, Kind::I64) => unsafe { eachprior_minus_i64(x, ctx) },
+        (OpId::Plus, Kind::I64) => unsafe { eachprior_plus_i64(x, ctx) },
+        _ => Err(KernelErr::Type),
+    }
+}
+
+unsafe fn eachprior_plus_i64(x: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    let xs = x.as_slice::<i64>();
+    let n = xs.len();
+    let mut out = crate::alloc::alloc_vec_i64(ctx, n as i64);
+    if n == 0 {
+        return Ok(out);
+    }
+    let os = out.as_mut_slice::<i64>();
+    os[0] = xs[0];
+    for i in 1..n {
+        os[i] = xs[i].wrapping_add(xs[i - 1]);
+    }
+    Ok(out)
+}
+
+unsafe fn eachprior_minus_i64(x: RefObj, ctx: &Ctx) -> Result<RefObj, KernelErr> {
+    // Common K idiom: `-':v` gives first differences (v[i] - v[i-1]).
+    let xs = x.as_slice::<i64>();
+    let n = xs.len();
+    let mut out = crate::alloc::alloc_vec_i64(ctx, n as i64);
+    if n == 0 {
+        return Ok(out);
+    }
+    let os = out.as_mut_slice::<i64>();
+    os[0] = xs[0];
+    for i in 1..n {
+        os[i] = xs[i].wrapping_sub(xs[i - 1]);
+    }
+    Ok(out)
+}
+
 /// Async scan: `op\x` — running aggregate, same length as `x`.
 pub async fn scan_async(op: OpId, x: RefObj, ctx: &Ctx<'_>) -> Result<RefObj, KernelErr> {
     if x.is_atom() {

@@ -260,7 +260,18 @@ impl<'a> Parser<'a> {
                         let adv = match adv_tok.kind {
                             TokenKind::Slash => AdvId::Over,
                             TokenKind::Backslash => AdvId::Scan,
-                            TokenKind::Tick => AdvId::Each,
+                            TokenKind::Tick => {
+                                // Lookahead for `':` (eachprior).
+                                if matches!(
+                                    self.peek().map(|t| &t.kind),
+                                    Some(TokenKind::Colon)
+                                ) {
+                                    self.bump();
+                                    AdvId::EachPrior
+                                } else {
+                                    AdvId::Each
+                                }
+                            }
                             _ => unreachable!(),
                         };
                         let arg = self.parse_expr()?;
